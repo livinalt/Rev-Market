@@ -160,7 +160,7 @@ export default function App() {
             </span>
           </h1>
           <p style={{ fontSize: 14, color: "var(--muted)", maxWidth: 480, lineHeight: 1.7 }}>
-            Markets on ETH prices and real-world events. All outcomes resolved automatically by Chainlink CRE — no admins, no delays.
+            Markets on ETH prices and real-world events. All outcomes resolved automatically by Chainlink CRE.
           </p>
         </div>
 

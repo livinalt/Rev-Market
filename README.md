@@ -1,5 +1,5 @@
-#  — CRE Prediction Market
-
+# Rev Markets — CRE Prediction Market
+![Website screenshot](<website.png>)
 > AI-powered prediction markets on Ethereum Sepolia. Ask any yes/no question, stake ETH on the outcome, and let Chainlink CRE + Google Gemini AI settle it automatically — no admins, no manual intervention, no trusted third party.
 
 🌐 **Live App:** [rev-markets.vercel.app](https://rev-markets.vercel.app)  
@@ -9,7 +9,7 @@
 
 ## What It Does
 
- is a trustless prediction market where:
+Rev Markets is a trustless prediction market where:
 
 1. Anyone creates a yes/no question market (e.g. "Will ETH be above $3000 by June 2026?")
 2. Users stake 0.001 ETH on YES or NO — verified as unique humans via World ID
@@ -64,7 +64,8 @@ Receive proportional ETH payout from pool
 | Frontend | React 19 · Vite · Thirdweb SDK |
 | Wallet Auth | Thirdweb ConnectButton |
 | Sybil Resistance | World ID — Device Verification |
-| Deployment | Vercel |
+| Monitoring & Simulation | Tenderly — Virtual TestNet + Transaction Tracer |
+
 
 ---
 
@@ -252,12 +253,6 @@ npm run build
 vercel --prod
 ```
 
-Vercel settings:
-- Root directory: `frontend`
-- Build command: `npm run build`
-- Output directory: `dist`
-
----
 
 ## End-to-End Demo Flow
 
@@ -306,6 +301,25 @@ cast send 0xf34c4C6eE65ddbD0C71D4313B774726b280590e9 \
 
 ---
 
+## Tenderly Integration
+
+Tenderly is used throughout development for three purposes:
+
+![Rev Market Tenderly Virtual Testnet](<tenderly_screenshot.png>)
+
+**1. Transaction Monitoring**
+Every transaction on `PredictionMarket.sol` is visible in real time with full execution traces, decoded logs, state diffs, and gas breakdowns — far more detail than Etherscan alone. This was used to debug `requestSettlement`, `onReport`, and `claim` calls during development.
+
+**2. Transaction Simulation**
+Before sending real transactions, Tenderly's simulator previews exact state changes, return values, and potential reverts without spending gas. Used to verify settlement logic and payout calculations before broadcasting.
+
+**3. Virtual TestNet**
+A forked Ethereum Sepolia environment was used to test the full end-to-end flow — deploying contracts, placing predictions, triggering CRE settlement, and claiming winnings — in an isolated environment with custom ETH balances before going live on real Sepolia.
+
+🔗 **Tenderly Dashboard:** [View Project ↗](https://dashboard.tenderly.co/Jerly/cx/testnet/6b716f89-d035-49ad-a3c2-a6f63fc442b0)
+
+---
+
 ## World ID Integration
 
 Predictions are gated by [World ID](https://worldcoin.org/world-id) device verification — proving a user is a unique human before they can stake ETH. Verification happens once per session; after that all predictions on any market go through without re-verification.
@@ -345,8 +359,13 @@ VITE_CLIENT_ID=your_thirdweb_client_id
 - [Chainlink CRE](https://docs.chain.link/cre) — Compute, trigger, and write automation
 - [Google Gemini AI](https://ai.google.dev) — Natural language market resolution
 - [World ID](https://worldcoin.org/world-id) — Proof of personhood / Sybil resistance
+- [Tenderly](https://tenderly.co) — Transaction monitoring, simulation, and Virtual TestNet
 - [Thirdweb](https://thirdweb.com) — Wallet connection + contract interaction
 - [Foundry](https://getfoundry.sh) — Smart contract development + testing
 - [Vite + React](https://vitejs.dev) — Frontend framework
 
 ---
+
+## License
+
+MIT
