@@ -1,225 +1,352 @@
-# CRE-Powered Prediction Market Settlement Engine
+#  — CRE Prediction Market
 
-> Automated, verifiable market settlement using Chainlink CRE on Base Sepolia.
-> Supports both numeric price markets and real-world event markets.
+> AI-powered prediction markets on Ethereum Sepolia. Ask any yes/no question, stake ETH on the outcome, and let Chainlink CRE + Google Gemini AI settle it automatically — no admins, no manual intervention, no trusted third party.
 
-## Overview
+🌐 **Live App:** [rev-markets.vercel.app](https://rev-markets.vercel.app)  
+📜 **Contract:** [0xf34c4C6eE65ddbD0C71D4313B774726b280590e9](https://sepolia.etherscan.io/address/0xf34c4c6ee65ddbd0c71d4313b774726b280590e9#code) · Ethereum Sepolia · Verified ✅
 
-This project demonstrates a two-system prediction market infrastructure where all settlement is automated by Chainlink CRE — no admin keys, no manual intervention, no centralized oracle owner.
+---
 
-**System 1 — Price Markets:** Was ETH above $3000 at expiry?
-**System 2 — Event Markets:** Did a real-world event happen? (volume thresholds, football results, governance votes)
+## What It Does
 
-Both systems share the same CRE orchestration pattern. Only the data source and aggregation method change per market type.
+ is a trustless prediction market where:
+
+1. Anyone creates a yes/no question market (e.g. "Will ETH be above $3000 by June 2026?")
+2. Users stake 0.001 ETH on YES or NO — verified as unique humans via World ID
+3. Anyone triggers AI settlement by clicking ⚡ on any open market
+4. Chainlink CRE detects the on-chain event, queries Google Gemini AI for the outcome
+5. Gemini returns YES or NO with a confidence score, CRE writes it back on-chain
+6. Winners claim their proportional share of the ETH pool
 
 ---
 
 ## Architecture
+
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                     CHAINLINK CRE LAYER                          │
-│                                                                  │
-│   price-job-spec.toml            event-job-spec.toml            │
-│   ┌──────────────────┐           ┌──────────────────┐           │
-│   │ Binance  HTTP    │           │ API-Football HTTP │           │
-│   │ CoinGecko HTTP   │           │ Binance Vol HTTP  │           │
-│   │ Gate.io  HTTP    │           │ Gate.io  Vol HTTP │           │
-│   └────────┬─────────┘           └────────┬──────────┘          │
-│        Median                         Majority Vote              │
-│        (tamper-resistant)             (2 of 3 sources)          │
-│            │                               │                     │
-│       eth_tx task                     eth_tx task               │
-└────────────┼───────────────────────────────┼─────────────────────┘
-             │                               │
-             ▼                               ▼
-┌────────────────────────┐   ┌───────────────────────────┐
-│   SettlementEngine     │   │   EventSettlementEngine    │
-│   executeSettlement    │   │   executeSettlement        │
-│   (uint256 price)      │   │   (uint8 outcome)          │
-│   replay protection    │   │   replay protection        │
-└──────────┬─────────────┘   └─────────────┬──────────────┘
-           │                               │
-           ▼                               ▼
-┌────────────────────────┐   ┌───────────────────────────┐
-│   PredictionMarket     │   │   EventMarket              │
-│                        │   │                            │
-│   strike: $3000        │   │   question: string         │
-│   settled: uint256     │   │   outcome: YES/NO/INVALID  │
-│   payout: proportional │   │   payout: proportional     │
-│                        │   │   refund: if INVALID       │
-└────────────────────────┘   └───────────────────────────┘
+User clicks ⚡ Request AI Settlement
+           │
+           ▼
+PredictionMarket.sol
+requestSettlement(marketId)
+emits SettlementRequested(marketId, question)
+           │
+           ▼
+Chainlink CRE — EVM Log Trigger
+Detects SettlementRequested event on Ethereum Sepolia
+           │
+           ▼
+CRE TypeScript Workflow
+├── Step 1: Read market state on-chain (getMarket)
+├── Step 2: Query Google Gemini AI with the question
+├── Step 3: Parse YES/NO + confidence score
+└── Step 4: Call onReport() to settle market on-chain
+           │
+           ▼
+PredictionMarket.sol
+onReport() → market.settled = true
+             market.outcome = YES/NO
+             market.confidence = %
+           │
+           ▼
+Winners call claim(marketId)
+Receive proportional ETH payout from pool
 ```
 
 ---
 
-## Why Two Aggregation Methods?
+## Tech Stack
 
-**Price markets → Median**
-```
-Binance:   $1963
-CoinGecko: $1963  ← median (correct)
-Gate.io:   $9999  ← spike ignored
-
-Median: $1963  ✅
-Mean:   $4641  ❌
-```
-Median is manipulation-resistant — one bad source cannot move the result.
-
-**Event markets → Majority Vote**
-```
-Check 1 (score comparison): YES ✅
-Check 2 (API winner flag):  YES ✅
-Check 3 (score difference): NO  ❌
-
-Votes: 2/3 YES → Outcome: YES ✅
-```
-Majority vote handles yes/no questions across independent data evaluations.
-If any source is unreachable or the event is incomplete → INVALID → full refunds.
-
----
-
-## Deployed Contracts (Base Sepolia)
-
-### Price Market System
-| Contract | Address |
+| Layer | Technology |
 |---|---|
-| PredictionMarket | `0xD8846806e200604428E6c40f6c3ed6B80c3a70DF` |
-| SettlementEngine | `0xA32d2AD94b9C1795d44385F16Bf5366131e0F362` |
+| Smart Contract | Solidity 0.8.24 · Foundry · Ethereum Sepolia |
+| Automation | Chainlink CRE — EVM Log Trigger + EVM Write |
+| AI Settlement | Google Gemini 2.0 Flash |
+| Frontend | React 19 · Vite · Thirdweb SDK |
+| Wallet Auth | Thirdweb ConnectButton |
+| Sybil Resistance | World ID — Device Verification |
+| Deployment | Vercel |
 
-### Event Market System
-| Contract | Address |
+---
+
+## Smart Contract
+
+**`PredictionMarket.sol`** — single contract handles everything:
+
+- `createMarket(string question)` — create a yes/no market
+- `predict(uint256 marketId, uint8 side)` — stake 0.001 ETH on YES (0) or NO (1)
+- `requestSettlement(uint256 marketId)` — trigger CRE + Gemini settlement
+- `onReport(uint256 marketId, uint8 outcome, uint16 confidence)` — CRE writes result
+- `claim(uint256 marketId)` — winners withdraw proportional ETH payout
+- `getMarket(uint256 marketId)` — read full market state
+- `getPrediction(uint256 marketId, address user)` — read user position
+
+**Deployed:** `0xf34c4C6eE65ddbD0C71D4313B774726b280590e9`  
+**Forwarder:** `0x15fc6ae953e024d975e77382eeec56a9101f9f88`  
+**Verified:** [View on Etherscan ↗](https://sepolia.etherscan.io/address/0xf34c4c6ee65ddbd0c71d4313b774726b280590e9#code)
+
+---
+
+## CRE Workflow
+
+The CRE workflow lives in `cre-contracts/my-project/my-workflow/`:
+
+| File | Purpose |
 |---|---|
-| EventMarket | `0xE6B57AAfA330D6d51058Ddbfe2e16A2F60951a69` |
-| EventSettlementEngine | `0x1769eC29AE46BB2EC2CFB002e9E7b368d95E377E` |
+| `main.ts` | Entry point — EVM Log Trigger setup |
+| `logCallback.ts` | Handles SettlementRequested events |
+| `gemini.ts` | Queries Gemini AI, parses YES/NO + confidence |
+| `httpCallback.ts` | HTTP trigger handler |
+| `config.staging.json` | Contract address + chain config |
+| `workflow.yaml` | CRE workflow definition |
+| `secrets.yaml` | Maps GEMINI_API_KEY secret |
 
-All four contracts verified on Basescan.
-
----
-
-## Supported Event Types
-
-| Event | Data Source | Resolution | Status |
-|---|---|---|---|
-| ETH price vs strike | Binance, CoinGecko, Gate.io | Median | ✅ Live demo |
-| 24h volume threshold | Binance, CoinGecko, Gate.io | Majority vote | ✅ Live demo |
-| Football match result | API-Football | Majority vote | ✅ Live demo |
-| On-chain governance | cast call (blockchain read) | Majority vote | 🔧 Swap job spec |
-| Weather threshold | OpenWeatherMap | Majority vote | 🔧 Swap job spec |
-| Election result | AP Elections API | Majority vote | 🔧 Swap job spec |
-
-Adding a new event type requires zero contract changes — only the CRE job spec data sources change.
-
----
-
-## Smart Contract Design
-
-### PredictionMarket.sol
-- Creates markets with strike price and expiry timestamp
-- Accepts ETH positions on ABOVE or BELOW
-- Settles only via authorized SettlementEngine
-- Pays winners proportionally from total pool
-
-### SettlementEngine.sol
-- Accepts calls only from CRE forwarder address
-- Replay protection via `keccak256(marketId, price)` mapping
-- Single entry point between CRE and market contract
-
-### EventMarket.sol
-- Creates markets with arbitrary question string (immutable after creation)
-- Accepts ETH positions on YES or NO
-- Three outcomes: YES, NO, INVALID
-- INVALID triggers full refunds to all participants
-- Replay-safe: settled markets cannot be re-settled
-
-### EventSettlementEngine.sol
-- Accepts `uint8 outcome` (1=YES, 2=NO, 3=INVALID)
-- Same replay protection pattern as SettlementEngine
-- Owner can rotate CRE forwarder address
-
----
-
-## CRE Integration
-
-Two job specs in `cre/`:
-
-**`cre/job-spec.toml`** — Price market settlement
-1. `check_expiry` — blockchain_read, exits if not ready
-2. `fetch_binance/coingecko/gateio` — parallel HTTP tasks
-3. `compute_median` — built-in CRE median task, multiplies by 1e8
-4. `submit_settlement` — eth_tx to SettlementEngine
-
-**`cre/event-job-spec.toml`** — Event market settlement
-1. `check_expiry` — blockchain_read, exits if not ready
-2. `fetch_*_volume` — parallel HTTP tasks per source
-3. `eval_*` — compare tasks, return 0 or 1
-4. `majority_vote` — sum of evaluations
-5. `map_outcome` — conditional maps to 1/2/3
-6. `submit_settlement` — eth_tx to EventSettlementEngine
+**Trigger:** EVM Log on `SettlementRequested(uint256,string)` event  
+**Chain:** Ethereum Sepolia (`ethereum-testnet-sepolia`)  
+**Gas limit:** 500,000
 
 ---
 
 ## Repository Structure
+
 ```
-cre-prediction-market/
-├── src/
-│   ├── PredictionMarket.sol       # Price market logic
-│   ├── SettlementEngine.sol       # CRE entry point for price markets
-│   ├── EventMarket.sol            # Event market logic + INVALID refund
-│   └── EventSettlementEngine.sol  # CRE entry point for event markets
-├── test/
-│   ├── PredictionMarket.t.sol     # 10 tests
-│   └── EventMarket.t.sol          # 12 tests
-├── script/
-│   ├── Deploy.s.sol               # Deploy price market system
-│   ├── DeployEvent.s.sol          # Deploy event market system
-│   └── demo.sh                    # Price market end-to-end demo
-├── cre/
-│   ├── job-spec.toml              # CRE workflow — price markets
-│   ├── event-job-spec.toml        # CRE workflow — event markets
-│   ├── simulate.sh                # Price market simulation
-│   ├── event-simulate.sh          # Volume event simulation
-│   └── football-simulate.sh       # Football event simulation
-└── README.md
+cre-prediction-market-2/
+├── cre-contracts/
+│   ├── src/
+│   │   └── PredictionMarket.sol      # Main contract
+│   ├── foundry.toml                  # Foundry config
+│   ├── .env                          # Private key, RPC, contract address
+│   └── my-project/
+│       └── my-workflow/
+│           ├── main.ts               # CRE workflow entry
+│           ├── logCallback.ts        # Event handler
+│           ├── gemini.ts             # Gemini AI integration
+│           ├── httpCallback.ts       # HTTP trigger handler
+│           ├── config.staging.json   # Staging config
+│           ├── workflow.yaml         # CRE workflow definition
+│           └── secrets.yaml          # Secret mappings
+└── frontend/
+    ├── src/
+    │   ├── App.jsx                   # Main app — sidebar + market grid
+    │   ├── components/
+    │   │   ├── Header.jsx            # Nav + wallet connect
+    │   │   ├── MarketCard.jsx        # Market card + World ID + actions
+    │   │   ├── MarketGrid.jsx        # 3-column grid
+    │   │   ├── CreateMarketModal.jsx # Create market form
+    │   │   ├── StatsBar.jsx          # Total/open/volume stats
+    │   │   ├── HowItWorks.jsx        # Landscape modal explaining flow
+    │   │   └── Toast.jsx             # Notifications
+    │   └── lib/
+    │       ├── contracts.js          # ABI + address
+    │       └── utils.js              # fmtEth, calcProb helpers
+    ├── vite.config.js
+    └── package.json
 ```
 
 ---
 
-## Quick Start
+## Getting Started
+
+### Prerequisites
+
+- [Node.js](https://nodejs.org) v18+
+- [Foundry](https://getfoundry.sh)
+- [Chainlink CRE CLI](https://docs.chain.link/cre)
+- Ethereum Sepolia wallet with test ETH ([faucet](https://sepoliafaucet.com))
+- [Gemini API key](https://aistudio.google.com)
+- [Thirdweb client ID](https://thirdweb.com)
+
+---
+
+### 1. Clone the repo
+
 ```bash
-# Install Foundry
-curl -L https://foundry.paradigm.xyz | bash && foundryup
+git clone https://github.com/livinalt/cre-prediction-market-2.git
+cd cre-prediction-market-2
+```
 
-# Clone
-git clone https://github.com/YOUR_USERNAME/cre-prediction-market
-cd cre-prediction-market
+---
 
-# Environment
+### 2. Deploy the contract (optional — already deployed)
+
+```bash
+cd cre-contracts
+
+# Set up environment
 cp .env.example .env
-# Fill in PRIVATE_KEY, BASE_SEPOLIA_RPC, ETHERSCAN_API_KEY,
-# CRE_FORWARDER_ADDRESS, FOOTBALL_API_KEY
+# Fill in:
+# CRE_ETH_PRIVATE_KEY=0x...
+# SEPOLIA_RPC=https://...
+# ETHERSCAN_API_KEY=...
 
-# Test
-forge test -vv
+# Deploy
+forge script script/Deploy.s.sol \
+  --rpc-url $SEPOLIA_RPC \
+  --private-key $CRE_ETH_PRIVATE_KEY \
+  --broadcast -vv
 
-# Deploy price market system
-forge script script/Deploy.s.sol:Deploy \
-  --rpc-url $BASE_SEPOLIA_RPC --private-key $PRIVATE_KEY --broadcast -vv
-
-# Deploy event market system
-forge script script/DeployEvent.s.sol:DeployEvent \
-  --rpc-url $BASE_SEPOLIA_RPC --private-key $PRIVATE_KEY --broadcast -vv
+# Verify on Etherscan
+forge verify-contract <DEPLOYED_ADDRESS> \
+  src/PredictionMarket.sol:PredictionMarket \
+  --chain sepolia \
+  --etherscan-api-key $ETHERSCAN_API_KEY \
+  --constructor-args $(cast abi-encode "constructor(address)" <FORWARDER_ADDRESS>)
 ```
 
 ---
 
-## Demo Flow
+### 3. Set up the CRE workflow
+
 ```bash
-# Demo 1: Price market — ETH vs $3000 strike
-bash script/demo.sh
+cd cre-contracts/my-project
 
-# Demo 2: Event market — ETH volume threshold
-bash cre/event-simulate.sh
+# Set up secrets
+cp secrets.yaml.example secrets.yaml
+# Fill in GEMINI_API_KEY_VAR
 
-# Demo 3: Football event — match result + INVALID guard
-bash cre/football-simulate.sh
+# Set up environment
+echo "CRE_ETH_PRIVATE_KEY=0x..." > .env
+echo "GEMINI_API_KEY_VAR=your_key" >> .env
+
+# Update contract address in config
+# Edit my-workflow/config.staging.json → marketAddress
+
+# Install dependencies
+npm install
+
+# Simulate the workflow (test before deploying)
+cre workflow simulate my-workflow --broadcast
+# Select: Log trigger
+# Paste a requestSettlement tx hash from Etherscan
 ```
+
+---
+
+### 4. Run the frontend
+
+```bash
+cd frontend
+
+# Install dependencies
+npm install --legacy-peer-deps
+
+# Set up environment
+cp .env.example .env
+# Fill in:
+# VITE_CLIENT_ID=your_thirdweb_client_id
+
+# Start dev server
+npm run dev
+# → http://localhost:5173
+```
+
+---
+
+### 5. Deploy frontend to Vercel
+
+```bash
+# Make sure vite.config.js has base: '/'
+# Then push to GitHub — Vercel auto-deploys
+
+# Or deploy manually
+npm run build
+vercel --prod
+```
+
+Vercel settings:
+- Root directory: `frontend`
+- Build command: `npm run build`
+- Output directory: `dist`
+
+---
+
+## End-to-End Demo Flow
+
+```bash
+# 1. Create a market
+cast send 0xf34c4C6eE65ddbD0C71D4313B774726b280590e9 \
+  "createMarket(string)" "Will ETH be above 2000 USD by March 2026?" \
+  --rpc-url $SEPOLIA_RPC --private-key $CRE_ETH_PRIVATE_KEY
+
+# 2. Place a prediction (YES = 0, NO = 1)
+cast send 0xf34c4C6eE65ddbD0C71D4313B774726b280590e9 \
+  "predict(uint256,uint8)" 0 0 \
+  --value 0.001ether \
+  --rpc-url $SEPOLIA_RPC --private-key $CRE_ETH_PRIVATE_KEY
+
+# 3. Request AI settlement
+cast send 0xf34c4C6eE65ddbD0C71D4313B774726b280590e9 \
+  "requestSettlement(uint256)" 0 \
+  --rpc-url $SEPOLIA_RPC --private-key $CRE_ETH_PRIVATE_KEY
+
+# 4. Simulate CRE workflow (Windows)
+cre workflow simulate my-workflow --broadcast
+# → Select Log trigger → paste tx hash from step 3
+
+# 5. Check settlement result
+cast call 0xf34c4C6eE65ddbD0C71D4313B774726b280590e9 \
+  "getMarket(uint256)((address,uint48,uint48,bool,uint16,uint8,uint256,uint256,string))" 0 \
+  --rpc-url $SEPOLIA_RPC
+
+# 6. Claim winnings (if you won)
+cast send 0xf34c4C6eE65ddbD0C71D4313B774726b280590e9 \
+  "claim(uint256)" 0 \
+  --rpc-url $SEPOLIA_RPC --private-key $CRE_ETH_PRIVATE_KEY
+```
+
+---
+
+## Key Transactions (Sepolia)
+
+| Action | Tx Hash |
+|---|---|
+| Contract deployment | `0x721025a2ef6bddb5e6fdd1d74730cca402854bae41574a43968060f1fba4113a` |
+| First market created | `0x671e702f11bc7d252b395f9e057de35afc82abf0face9ee6b385b07f602fe9b9` |
+| First prediction placed | `0x2c5f1fc33c0bb63f8484ff3c7fea486195992049d4141f7b72636c826f955333` |
+| Settlement requested | `0xa725e0bd87584342e2de246ff71799a7c4235eeb28515004e5dd4d1b151782ce` |
+
+---
+
+## World ID Integration
+
+Predictions are gated by [World ID](https://worldcoin.org/world-id) device verification — proving a user is a unique human before they can stake ETH. Verification happens once per session; after that all predictions on any market go through without re-verification.
+
+- **App ID:** `app_52bcb1ea37b432cf6a3e85f97160fc9e`
+- **Action:** `predict`
+- **Level:** Device verification
+- **Max verifications:** Unique per user
+
+---
+
+## Environment Variables
+
+### `cre-contracts/.env`
+```
+CRE_ETH_PRIVATE_KEY=0x...
+SEPOLIA_RPC=https://ethereum-sepolia-rpc.publicnode.com
+MARKET_ADDRESS=0xf34c4C6eE65ddbD0C71D4313B774726b280590e9
+ETHERSCAN_API_KEY=...
+```
+
+### `cre-contracts/my-project/.env`
+```
+CRE_ETH_PRIVATE_KEY=0x...
+GEMINI_API_KEY_VAR=...
+```
+
+### `frontend/.env`
+```
+VITE_CLIENT_ID=your_thirdweb_client_id
+```
+
+---
+
+## Built With
+
+- [Chainlink CRE](https://docs.chain.link/cre) — Compute, trigger, and write automation
+- [Google Gemini AI](https://ai.google.dev) — Natural language market resolution
+- [World ID](https://worldcoin.org/world-id) — Proof of personhood / Sybil resistance
+- [Thirdweb](https://thirdweb.com) — Wallet connection + contract interaction
+- [Foundry](https://getfoundry.sh) — Smart contract development + testing
+- [Vite + React](https://vitejs.dev) — Frontend framework
+
+---
