@@ -12,15 +12,16 @@ import { CLIENT_ID, MARKET_ADDRESS, MARKET_ABI } from "./lib/contracts";
 export const client = createThirdwebClient({ clientId: CLIENT_ID });
 
 const CATEGORIES = [
-  { id: "all",       label: "All",         icon: "◈" },
-  { id: "crypto",    label: "Crypto",      icon: "₿" },
-  { id: "tech",      label: "Tech & AI",   icon: "⚡" },
-  { id: "finance",   label: "Finance",     icon: "📈" },
-  { id: "sports",    label: "Sports",      icon: "⚽" },
-  { id: "geo",       label: "Geopolitics", icon: "🌍" },
-  { id: "mine",      label: "My Markets",  icon: "👤" },
-  { id: "positions", label: "Positions",   icon: "🎯" },
+  { id: "all", label: "All", icon: "◈" },
+  { id: "crypto", label: "Crypto", icon: "₿" },
+  { id: "tech", label: "Tech & AI", icon: "⚡" },
+  { id: "finance", label: "Finance", icon: "📈" },
+  { id: "sports", label: "Sports", icon: "⚽" },
+  { id: "geo", label: "Geopolitics", icon: "🌍" },
+  { id: "mine", label: "My Markets", icon: "👤" },
+  { id: "positions", label: "Positions", icon: "🎯" },
 ];
+
 
 function categorizeMarket(question) {
   const q = question.toLowerCase();
@@ -34,12 +35,13 @@ function categorizeMarket(question) {
 
 export default function App() {
   const account = useActiveAccount();
-  const [markets, setMarkets]       = useState([]);
-  const [positions, setPositions]   = useState({});
-  const [loading, setLoading]       = useState(false);
-  const [activeTab, setActiveTab]   = useState("all");
+  const [markets, setMarkets] = useState([]);
+  const [positions, setPositions] = useState({});
+  const [loading, setLoading] = useState(false);
+  const [activeTab, setActiveTab] = useState("all");
   const [showCreate, setShowCreate] = useState(false);
-  const [toast, setToast]           = useState(null);
+  const [toast, setToast] = useState(null);
+  const [worldIdVerified, setWorldIdVerified] = useState(false);
 
   function showToast(msg, kind = "info") {
     setToast({ msg, kind });
@@ -57,16 +59,16 @@ export default function App() {
           readContract({ contract, method: "getMarket", params: [BigInt(i)] })
             .then(m => ({
               id: i,
-              creator:      m.creator,
-              createdAt:    Number(m.createdAt),
-              settledAt:    Number(m.settledAt),
-              settled:      m.settled,
-              confidence:   Number(m.confidence),
-              outcome:      Number(m.outcome),
+              creator: m.creator,
+              createdAt: Number(m.createdAt),
+              settledAt: Number(m.settledAt),
+              settled: m.settled,
+              confidence: Number(m.confidence),
+              outcome: Number(m.outcome),
               totalYesPool: m.totalYesPool,
-              totalNoPool:  m.totalNoPool,
-              question:     m.question,
-              category:     categorizeMarket(m.question),
+              totalNoPool: m.totalNoPool,
+              question: m.question,
+              category: categorizeMarket(m.question),
             }))
         )
       );
@@ -110,28 +112,28 @@ export default function App() {
     localStorage.setItem(key, JSON.stringify(existing));
   }
 
-  const created      = getCreatedMarkets();
+  const created = getCreatedMarkets();
   const positionMkts = markets.filter(m => positions[m.id]);
 
   function getDisplay() {
-    if (activeTab === "mine")      return created;
+    if (activeTab === "mine") return created;
     if (activeTab === "positions") return positionMkts;
-    if (activeTab === "all")       return markets;
+    if (activeTab === "all") return markets;
     return markets.filter(m => m.category === activeTab);
   }
 
-  const display   = getDisplay();
-  const totalVol  = markets.reduce((acc, m) => acc + Number(m.totalYesPool || 0) + Number(m.totalNoPool || 0), 0);
+  const display = getDisplay();
+  const totalVol = markets.reduce((acc, m) => acc + Number(m.totalYesPool || 0) + Number(m.totalNoPool || 0), 0);
   const openCount = markets.filter(m => !m.settled).length;
 
   const categoryCounts = {
-    all:       markets.length,
-    crypto:    markets.filter(m => m.category === "crypto").length,
-    tech:      markets.filter(m => m.category === "tech").length,
-    finance:   markets.filter(m => m.category === "finance").length,
-    sports:    markets.filter(m => m.category === "sports").length,
-    geo:       markets.filter(m => m.category === "geo").length,
-    mine:      created.length,
+    all: markets.length,
+    crypto: markets.filter(m => m.category === "crypto").length,
+    tech: markets.filter(m => m.category === "tech").length,
+    finance: markets.filter(m => m.category === "finance").length,
+    sports: markets.filter(m => m.category === "sports").length,
+    geo: markets.filter(m => m.category === "geo").length,
+    mine: created.length,
     positions: positionMkts.length,
   };
 
@@ -184,8 +186,8 @@ export default function App() {
             </div>
 
             {CATEGORIES.map(cat => {
-              const isActive   = activeTab === cat.id;
-              const count      = categoryCounts[cat.id] ?? 0;
+              const isActive = activeTab === cat.id;
+              const count = categoryCounts[cat.id] ?? 0;
               const isPersonal = cat.id === "mine" || cat.id === "positions";
               if (isPersonal && !account) return null;
 
@@ -286,7 +288,10 @@ export default function App() {
               onRefresh={loadMarkets}
               showEmpty={false}
               onToast={showToast}
+              worldIdVerified={worldIdVerified}
+              onWorldIdVerified={() => setWorldIdVerified(true)}
             />
+
           </div>
         </div>
       </main>
@@ -297,9 +302,9 @@ export default function App() {
         </span>
         <div style={{ display: "flex", gap: 20 }}>
           {[
-            ["GitHub",    "https://github.com/livinalt/cre-prediction-market-2.git"],
+            ["GitHub", "https://github.com/livinalt/cre-prediction-market-2.git"],
             ["Etherscan", "https://sepolia.etherscan.io/address/0xf34c4C6eE65ddbD0C71D4313B774726b280590e9"],
-            ["Tenderly",  "https://dashboard.tenderly.co/Jerly/cx/testnet/6b716f89-d035-49ad-a3c2-a6f63fc442b0"],
+            ["Tenderly", "https://dashboard.tenderly.co/Jerly/cx/testnet/6b716f89-d035-49ad-a3c2-a6f63fc442b0"],
           ].map(([l, u]) => (
             <a key={l} href={u} target="_blank" rel="noreferrer"
               style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--muted)", textDecoration: "none" }}
