@@ -1,15 +1,12 @@
 import { useState } from "react";
 import { ConnectButton } from "thirdweb/react";
-import { baseSepolia } from "thirdweb/chains";
+import { sepolia } from "thirdweb/chains";
 import { client } from "../App";
-import { PM_ADDRESS, SE_ADDRESS, EM_ADDRESS, ESE_ADDRESS } from "../lib/contracts";
+import { MARKET_ADDRESS } from "../lib/contracts";
 import HowItWorksModal from "./HowItWorks";
 
 const CONTRACTS = [
-  { name: "PredictionMarket.sol",      addr: PM_ADDRESS  },
-  { name: "SettlementEngine.sol",      addr: SE_ADDRESS  },
-  { name: "EventMarket.sol",           addr: EM_ADDRESS  },
-  { name: "EventSettlementEngine.sol", addr: ESE_ADDRESS },
+  { name: "PredictionMarket.sol", addr: MARKET_ADDRESS },
 ];
 
 const ghostBtn = {
@@ -32,7 +29,7 @@ export default function Header({ onRefresh, loading, onCreateMarket }) {
         background: "rgba(5,5,8,0.9)", backdropFilter: "blur(20px)",
         borderBottom: "1px solid var(--border)",
         padding: "0 32px", height: 60,
-        display: "flex", alignItems: "center", justifyContent: "space-between"
+        display: "flex", alignItems: "center", justifyContent: "space-between",
       }}>
         {/* Logo */}
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -40,11 +37,11 @@ export default function Header({ onRefresh, loading, onCreateMarket }) {
             width: 28, height: 28, borderRadius: 7,
             background: "linear-gradient(135deg, #7c6af7, #a78bfa)",
             display: "flex", alignItems: "center", justifyContent: "center",
-            fontSize: 13, fontWeight: 800, color: "white", flexShrink: 0
+            fontSize: 13, fontWeight: 800, color: "white", flexShrink: 0,
           }}>◈</div>
-          <span style={{ fontSize: 17, fontWeight: 800, letterSpacing: -0.5 }}>Foresight</span>
+          <span style={{ fontSize: 17, fontWeight: 800, letterSpacing: -0.5 }}>Rev</span>
           <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--muted)" }}>
-            / CRE Markets
+            / Markets
           </span>
         </div>
 
@@ -56,9 +53,9 @@ export default function Header({ onRefresh, loading, onCreateMarket }) {
             <span style={{
               width: 6, height: 6, borderRadius: "50%",
               background: "#22d3a5", boxShadow: "0 0 5px #22d3a5",
-              display: "inline-block", flexShrink: 0
+              display: "inline-block", flexShrink: 0,
             }} />
-            <span style={{ fontSize: 11 }}>Base Sepolia</span>
+            <span style={{ fontSize: 11 }}>Ethereum Sepolia</span>
           </div>
 
           {/* How it works */}
@@ -83,7 +80,7 @@ export default function Header({ onRefresh, loading, onCreateMarket }) {
               <span style={{
                 fontSize: 8, display: "inline-block",
                 transform: showContracts ? "rotate(180deg)" : "rotate(0deg)",
-                transition: "transform 0.2s"
+                transition: "transform 0.2s",
               }}>▼</span>
             </div>
 
@@ -95,24 +92,24 @@ export default function Header({ onRefresh, loading, onCreateMarket }) {
                   position: "absolute", top: "calc(100% + 8px)", right: 0,
                   background: "var(--surface)", border: "1px solid var(--border2)",
                   borderRadius: 10, padding: 8, zIndex: 100,
-                  minWidth: 280, boxShadow: "0 16px 48px rgba(0,0,0,0.5)"
+                  minWidth: 280, boxShadow: "0 16px 48px rgba(0,0,0,0.5)",
                 }}>
                   <div style={{
                     fontFamily: "var(--mono)", fontSize: 9, color: "var(--muted)",
                     textTransform: "uppercase", letterSpacing: 1.2,
-                    padding: "4px 8px 8px"
+                    padding: "4px 8px 8px",
                   }}>
-                    Live Contracts · Base Sepolia
+                    Live Contracts · Ethereum Sepolia
                   </div>
                   {CONTRACTS.map(c => (
                     <a key={c.addr}
-                      href={`https://sepolia.basescan.org/address/${c.addr}`}
+                      href={`https://sepolia.etherscan.io/address/${c.addr}`}
                       target="_blank" rel="noreferrer"
                       onClick={() => setShowContracts(false)}
                       style={{
                         display: "flex", flexDirection: "column", gap: 2,
                         padding: "9px 10px", borderRadius: 7,
-                        textDecoration: "none", transition: "background 0.15s"
+                        textDecoration: "none", transition: "background 0.15s",
                       }}
                       onMouseEnter={e => e.currentTarget.style.background = "var(--surface2)"}
                       onMouseLeave={e => e.currentTarget.style.background = "transparent"}
@@ -140,12 +137,12 @@ export default function Header({ onRefresh, loading, onCreateMarket }) {
             {loading ? "..." : "⟳"}
           </div>
 
-          {/* Create Market — only button with accent */}
+          {/* Create Market */}
           <div onClick={onCreateMarket} style={{
             padding: "7px 14px", borderRadius: 8, cursor: "pointer",
             background: "linear-gradient(135deg, #7c6af7, #22d3a5)",
             color: "#000", fontWeight: 700, fontSize: 12,
-            userSelect: "none", transition: "opacity 0.2s", marginRight: 8
+            userSelect: "none", transition: "opacity 0.2s", marginRight: 8,
           }}
             onMouseEnter={e => e.currentTarget.style.opacity = "0.85"}
             onMouseLeave={e => e.currentTarget.style.opacity = "1"}
@@ -153,30 +150,22 @@ export default function Header({ onRefresh, loading, onCreateMarket }) {
             + Create Market
           </div>
 
-          {/* Thirdweb ConnectButton — minimal theme overrides */}
           <ConnectButton
             client={client}
-            chain={baseSepolia}
+            chain={sepolia}
             theme="dark"
             connectButton={{
               style: {
-                background: "transparent",
-                border: "none",
-                color: "var(--muted)",
-                fontFamily: "var(--mono)",
-                fontSize: 12,
-                padding: "6px 10px",
-                borderRadius: 6,
+                background: "transparent", border: "none",
+                color: "var(--muted)", fontFamily: "var(--mono)",
+                fontSize: 12, padding: "6px 10px", borderRadius: 6,
               }
             }}
             detailsButton={{
               style: {
-                background: "transparent",
-                border: "none",
-                color: "var(--muted)",
-                fontFamily: "var(--mono)",
-                fontSize: 12,
-                padding: "6px 10px",
+                background: "transparent", border: "none",
+                color: "var(--muted)", fontFamily: "var(--mono)",
+                fontSize: 12, padding: "6px 10px",
               }
             }}
           />
