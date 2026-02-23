@@ -1,5 +1,7 @@
 # Rev Markets — CRE Prediction Market
-![Website screenshot](<website.png>)
+
+![Website screenshot](screenshots/website.png)
+
 > AI-powered prediction markets on Ethereum Sepolia. Ask any yes/no question, stake ETH on the outcome, and let Chainlink CRE + Google Gemini AI settle it automatically — no admins, no manual intervention, no trusted third party.
 
 🌐 **Live App:** [rev-markets.vercel.app](https://rev-markets.vercel.app)  
@@ -305,7 +307,7 @@ cast send 0xf34c4C6eE65ddbD0C71D4313B774726b280590e9 \
 
 Tenderly is used throughout development for three purposes:
 
-![Rev Market Tenderly Virtual Testnet](<tenderly_screenshot.png>)
+![Rev Market Tenderly Virtual Testnet](screenshots/tenderly_screenshot.png)
 
 **1. Transaction Monitoring**
 Every transaction on `PredictionMarket.sol` is visible in real time with full execution traces, decoded logs, state diffs, and gas breakdowns — far more detail than Etherscan alone. This was used to debug `requestSettlement`, `onReport`, and `claim` calls during development.
