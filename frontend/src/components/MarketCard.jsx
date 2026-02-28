@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useActiveAccount, useSendTransaction } from "thirdweb/react";
 import { getContract, prepareContractCall } from "thirdweb";
 import { sepolia } from "thirdweb/chains";
@@ -6,6 +6,7 @@ import { client } from "../App";
 import { MARKET_ADDRESS, MARKET_ABI } from "../lib/contracts";
 import { fmtEth, calcProb } from "../lib/utils";
 import { notify } from "../lib/useNotifications";
+import MarketDetailModal from "./MarketDetailModal";
 
 export default function MarketCard({ market, userPosition, onRefresh, onToast, onNotify }) {
   const account = useActiveAccount();
@@ -13,9 +14,20 @@ export default function MarketCard({ market, userPosition, onRefresh, onToast, o
   const [settling, setSettling]     = useState(false);
   const [claiming, setClaiming]     = useState(false);
   const [predicting, setPredicting] = useState(null);
+  const [showDetail, setShowDetail] = useState(false);
 
   const toast    = (msg, kind = "info") => onToast?.(msg, kind) ?? console.log(msg);
   const contract = getContract({ client, chain: sepolia, address: MARKET_ADDRESS, abi: MARKET_ABI });
+
+  // Amber dot while pending settlement — read from localStorage
+  const isPendingSettlement = !!localStorage.getItem(`pending_settlement_${market.id}`);
+
+  // Clear pending flag when market settles
+  useEffect(() => {
+    if (market.settled) {
+      localStorage.removeItem(`pending_settlement_${market.id}`);
+    }
+  }, [market.settled]);
 
   const isOpen    = !market.settled;
   const yesPool   = Number(market.totalYesPool);
@@ -69,15 +81,22 @@ export default function MarketCard({ market, userPosition, onRefresh, onToast, o
         params: [BigInt(market.id)],
       });
     } catch (e) { toast("Failed to prepare tx", "error"); setSettling(false); return; }
+
     toast("Requesting AI settlement…", "info");
     sendTx(tx, {
       onSuccess: () => {
         toast("Settlement requested ✓", "success");
-        onNotify?.(notify.settled(market.id, market.question));
+        // Store pending flag — notification panel will track stale state
+        localStorage.setItem(`pending_settlement_${market.id}`, Date.now().toString());
+        // Fire notification with pending status
+        onNotify?.(notify.settlementRequested(market.id, market.question));
         setTimeout(onRefresh, 3000);
         setSettling(false);
       },
-      onError: e => { toast(e.message.slice(0, 60), "error"); setSettling(false); },
+      onError: e => {
+        toast(e.message.slice(0, 60), "error");
+        setSettling(false);
+      },
     });
   }
 
@@ -91,11 +110,11 @@ export default function MarketCard({ market, userPosition, onRefresh, onToast, o
         params: [BigInt(market.id)],
       });
     } catch (e) { toast("Failed to prepare tx", "error"); setClaiming(false); return; }
+
     toast("Claiming winnings…", "info");
     sendTx(tx, {
       onSuccess: () => {
         toast("Winnings claimed ✓", "success");
-        // Estimate winnings — actual amount needs event parsing but this is good enough
         onNotify?.(notify.claimed(market.id, userPosition?.amount ?? 0));
         setTimeout(onRefresh, 2000);
         setClaiming(false);
@@ -109,8 +128,17 @@ export default function MarketCard({ market, userPosition, onRefresh, onToast, o
     { label: "No",  side: 1, color: "#ef4444", bg: "rgba(239,68,68,0.07)",  hover: "rgba(239,68,68,0.15)"  },
   ];
 
+  // Live dot color:
+  // green  = open, no pending
+  // amber  = open, settlement pending
+  // red/green = settled
+  const liveDotColor = isPendingSettlement ? "#fbbf24" : "#22c55e";
+  const liveLabel    = isPendingSettlement ? "SETTLING" : "LIVE";
+
   return (
+    <>
     <div
+      onClick={() => setShowDetail(true)}
       style={{
         background: "var(--surface)",
         border: `1px solid ${hasPos ? "rgba(124,106,247,0.3)" : "var(--border)"}`,
@@ -118,8 +146,9 @@ export default function MarketCard({ market, userPosition, onRefresh, onToast, o
         transition: "transform 0.15s, box-shadow 0.15s",
         display: "flex", flexDirection: "column",
         width: "100%", boxSizing: "border-box",
+        cursor: "pointer",
       }}
-      onMouseEnter={e => { e.currentTarget.style.transform = "translateY(-1px)"; e.currentTarget.style.boxShadow = "0 4px 16px rgba(0,0,0,0.3)"; }}
+      onMouseEnter={e => { e.currentTarget.style.transform = "translateY(-1px)"; e.currentTarget.style.boxShadow = "0 4px 20px rgba(124,106,247,0.15)"; }}
       onMouseLeave={e => { e.currentTarget.style.transform = "none"; e.currentTarget.style.boxShadow = "none"; }}
     >
       {/* Position strip */}
@@ -137,11 +166,18 @@ export default function MarketCard({ market, userPosition, onRefresh, onToast, o
             #{market.id}
           </span>
           {isOpen ? (
-            <span style={{ display: "flex", alignItems: "center", gap: 3, fontFamily: "var(--mono)", fontSize: 9, color: "#22c55e" }}>
-              <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 4px #22c55e", display: "inline-block" }} />
-              LIVE
+            <span style={{ display: "flex", alignItems: "center", gap: 4, fontFamily: "var(--mono)", fontSize: 9, color: liveDotColor }}>
+              {/* Dot — pulses amber when settling */}
+              <span style={{
+                width: 5, height: 5, borderRadius: "50%",
+                background: liveDotColor,
+                boxShadow: `0 0 4px ${liveDotColor}`,
+                display: "inline-block",
+                animation: isPendingSettlement ? "pulseGlow 1.5s ease-in-out infinite" : "none",
+              }} />
+              {liveLabel}
               {isCreator && (
-                <span style={{ marginLeft: 4, fontSize: 8, color: "#a78bfa", background: "rgba(124,106,247,0.1)", border: "1px solid rgba(124,106,247,0.2)", padding: "0px 5px", borderRadius: 99 }}>
+                <span style={{ marginLeft: 2, fontSize: 8, color: "#a78bfa", background: "rgba(124,106,247,0.1)", border: "1px solid rgba(124,106,247,0.2)", padding: "0px 5px", borderRadius: 99 }}>
                   yours
                 </span>
               )}
@@ -195,7 +231,7 @@ export default function MarketCard({ market, userPosition, onRefresh, onToast, o
 
         {/* Bet buttons */}
         {isOpen && !hasPos && (
-          <div style={{ display: "flex", gap: 6 }}>
+          <div style={{ display: "flex", gap: 6 }} onClick={e => e.stopPropagation()}>
             {BTNS.map(btn => {
               const isThisSide  = predicting === btn.side;
               const isOtherSide = predicting !== null && predicting !== btn.side;
@@ -226,10 +262,10 @@ export default function MarketCard({ market, userPosition, onRefresh, onToast, o
           </div>
         )}
 
-        {/* Request AI Settlement — creator or predictor only */}
+        {/* Settlement button — clean, no pending UI on card */}
         {canSettle && (
           <button
-            onClick={requestSettlement}
+            onClick={e => { e.stopPropagation(); requestSettlement(); }}
             disabled={settling || isPending}
             style={{
               width: "100%", padding: "8px 0", borderRadius: 7,
@@ -248,7 +284,7 @@ export default function MarketCard({ market, userPosition, onRefresh, onToast, o
         {/* Claim Winnings */}
         {userWon && (
           <button
-            onClick={claimWinnings}
+            onClick={e => { e.stopPropagation(); claimWinnings(); }}
             disabled={claiming}
             style={{
               width: "100%", padding: "8px 0", borderRadius: 7,
@@ -275,6 +311,26 @@ export default function MarketCard({ market, userPosition, onRefresh, onToast, o
           </div>
         )}
       </div>
+
+      <style>{`
+        @keyframes pulseGlow {
+          0%, 100% { opacity: 1; }
+          50%       { opacity: 0.3; }
+        }
+      `}</style>
     </div>
+
+    {/* Detail modal */}
+    {showDetail && (
+      <MarketDetailModal
+        market={market}
+        userPosition={userPosition}
+        onClose={() => setShowDetail(false)}
+        onRefresh={onRefresh}
+        onToast={onToast}
+        onNotify={onNotify}
+      />
+    )}
+  </>
   );
 }

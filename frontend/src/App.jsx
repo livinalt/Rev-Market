@@ -63,7 +63,7 @@ export default function App() {
   const prevMarketsRef = useRef([]);
 
   const addr = account?.address?.toLowerCase();
-  const { notifications, addNotification, markAllRead, clearAll, unreadCount } = useNotifications(addr);
+  const { notifications, addNotification, dismissSettlement, markAllRead, clearAll, unreadCount } = useNotifications(addr);
 
   function showToast(msg, kind = "info") {
     setToast({ msg, kind });
@@ -149,11 +149,14 @@ export default function App() {
   // Initial load
   useEffect(() => { loadMarkets(); }, [account?.address]);
 
-  // Poll every 30 seconds silently for settled markets
+  // Poll silently — 10s if any settlements are pending, 30s otherwise
   useEffect(() => {
-    const interval = setInterval(() => loadMarkets(true), 30_000);
+    const hasPending = markets.some(m =>
+      localStorage.getItem(`pending_settlement_${m.id}`) && !m.settled
+    );
+    const interval = setInterval(() => loadMarkets(true), hasPending ? 10_000 : 30_000);
     return () => clearInterval(interval);
-  }, [account?.address, positions]);
+  }, [account?.address, markets]);
 
   function getCreatedMarkets() {
     if (!addr) return [];
@@ -384,6 +387,7 @@ export default function App() {
           onMarkAllRead={markAllRead}
           onClearAll={clearAll}
           onClose={() => setShowNotifications(false)}
+          onDismissSettlement={dismissSettlement}
           onClaimClick={(marketId) => {
             setShowNotifications(false);
             setActiveTab("positions");

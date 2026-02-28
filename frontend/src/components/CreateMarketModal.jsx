@@ -8,13 +8,14 @@ import { MARKET_ADDRESS, MARKET_ABI } from "../lib/contracts";
 export default function CreateMarketModal({ onClose, onCreated }) {
   const account = useActiveAccount();
   const { mutate: sendTx, isPending } = useSendTransaction();
-  const [question, setQuestion] = useState("");
-  const [error, setError]       = useState("");
-  const [success, setSuccess]   = useState("");
+  const [question, setQuestion]       = useState("");
+  const [description, setDescription] = useState("");
+  const [error, setError]             = useState("");
+  const [success, setSuccess]         = useState("");
 
   function validate() {
-    if (!account)          { setError("Connect your wallet first"); return false; }
-    if (!question.trim())  { setError("Enter a question"); return false; }
+    if (!account)         { setError("Connect your wallet first"); return false; }
+    if (!question.trim()) { setError("Enter a question"); return false; }
     return true;
   }
 
@@ -23,23 +24,25 @@ export default function CreateMarketModal({ onClose, onCreated }) {
     setSuccess("");
     if (!validate()) return;
 
-    const contract = getContract({
-      client,
-      chain: sepolia,
-      address: MARKET_ADDRESS,
-      abi: MARKET_ABI,
-    });
-
-    const tx = prepareContractCall({
-      contract,
-      method: "createMarket",
+    const contract = getContract({ client, chain: sepolia, address: MARKET_ADDRESS, abi: MARKET_ABI });
+    const tx       = prepareContractCall({
+      contract, method: "createMarket",
       params: [question.trim()],
     });
 
     sendTx(tx, {
-      onSuccess: () => {
+      onSuccess: (receipt) => {
+        // Save description off-chain in localStorage — never touches the contract
+        const marketId = receipt?.logs?.[0]?.topics?.[1]
+          ? parseInt(receipt.logs[0].topics[1], 16)
+          : Date.now(); // fallback key if id not parseable yet
+
+        if (description.trim()) {
+          localStorage.setItem(`market_desc_${marketId}`, description.trim());
+        }
+
         setSuccess("Market created! ✓");
-        setTimeout(() => { onCreated(); onClose(); }, 2000);
+        setTimeout(() => { onCreated(marketId); onClose(); }, 2000);
       },
       onError: e => setError(e.message.slice(0, 80)),
     });
@@ -49,7 +52,7 @@ export default function CreateMarketModal({ onClose, onCreated }) {
     width: "100%", padding: "10px 12px", borderRadius: 8,
     border: "1px solid var(--border2)", background: "var(--bg)",
     color: "var(--text)", fontFamily: "var(--mono)", fontSize: 13,
-    outline: "none", transition: "border-color 0.2s",
+    outline: "none", transition: "border-color 0.2s", boxSizing: "border-box",
   };
 
   const labelStyle = {
@@ -59,34 +62,44 @@ export default function CreateMarketModal({ onClose, onCreated }) {
   };
 
   return (
-    <div style={{
-      position: "fixed", inset: 0, zIndex: 200,
-      background: "rgba(0,0,0,0.75)", backdropFilter: "blur(4px)",
-      display: "flex", alignItems: "center", justifyContent: "center",
-      padding: 20,
-    }} onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+    <div
+      style={{
+        position: "fixed", inset: 0, zIndex: 200,
+        background: "rgba(0,0,0,0.75)", backdropFilter: "blur(4px)",
+        display: "flex", alignItems: "center", justifyContent: "center",
+        padding: 20,
+      }}
+      onClick={e => { if (e.target === e.currentTarget) onClose(); }}
+    >
       <div style={{
         background: "var(--surface)", border: "1px solid var(--border2)",
-        borderRadius: 16, padding: 28, width: "100%", maxWidth: 460,
+        borderRadius: 16, padding: 28, width: "100%", maxWidth: 480,
         boxShadow: "0 24px 64px rgba(0,0,0,0.6)",
+        maxHeight: "90vh", overflowY: "auto",
       }}>
+
         {/* Header */}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24 }}>
-          <h2 style={{ fontSize: 18, fontWeight: 800, letterSpacing: -0.5 }}>
-            Create Market
-          </h2>
-          <div onClick={onClose} style={{
-            width: 28, height: 28, borderRadius: 6, cursor: "pointer",
-            background: "var(--bg)", border: "1px solid var(--border)",
-            display: "flex", alignItems: "center", justifyContent: "center",
-            color: "var(--muted)", fontSize: 14,
-          }}>✕</div>
+          <div>
+            <h2 style={{ fontSize: 18, fontWeight: 800, letterSpacing: -0.5 }}>Create Market</h2>
+            <p style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--muted)", marginTop: 3 }}>
+              Ask any yes/no question. Chainlink CRE + AI will settle it automatically
+            </p>
+          </div>
+          <div
+            onClick={onClose}
+            style={{ width: 28, height: 28, borderRadius: 6, cursor: "pointer", background: "var(--bg)", border: "1px solid var(--border)", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--muted)", fontSize: 14, flexShrink: 0 }}
+          >✕</div>
         </div>
 
         {/* Form */}
-        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+
+          {/* Question — goes on-chain */}
           <div>
-            <label style={labelStyle}>Question</label>
+            <label style={labelStyle}>
+              Question
+            </label>
             <textarea
               placeholder="e.g. Will ETH be above $3000 by June 2026?"
               value={question}
@@ -96,26 +109,38 @@ export default function CreateMarketModal({ onClose, onCreated }) {
               onFocus={e => e.target.style.borderColor = "var(--accent)"}
               onBlur={e => e.target.style.borderColor = "var(--border2)"}
             />
-            <div style={{ fontSize: 11, color: "var(--muted)", fontFamily: "var(--mono)", marginTop: 5 }}>
-              Ask any yes/no question. Chainlink CRE + Gemini AI will settle it automatically.
-            </div>
+
+          </div>
+
+          {/* Description — stays off-chain */}
+          <div>
+            <label style={labelStyle}>
+              Description
+              <span style={{ marginLeft: 6, color: "#22d3a5", fontSize: 9 }}>optional</span>
+            </label>
+            <textarea
+              placeholder="Add context, resolution criteria, sources…"
+              value={description}
+              onChange={e => setDescription(e.target.value)}
+              rows={4}
+              style={{ ...inputStyle, resize: "vertical", lineHeight: 1.6, fontSize: 12 }}
+              onFocus={e => e.target.style.borderColor = "rgba(34,211,165,0.5)"}
+              onBlur={e => e.target.style.borderColor = "var(--border2)"}
+            />
+
           </div>
         </div>
 
         {/* Error / Success */}
         {error && (
-          <div style={{
-            marginTop: 14, padding: "8px 12px", borderRadius: 8,
-            background: "rgba(248,113,113,0.07)", border: "1px solid rgba(248,113,113,0.3)",
-            color: "#f87171", fontFamily: "var(--mono)", fontSize: 12,
-          }}>{error}</div>
+          <div style={{ marginTop: 14, padding: "8px 12px", borderRadius: 8, background: "rgba(248,113,113,0.07)", border: "1px solid rgba(248,113,113,0.3)", color: "#f87171", fontFamily: "var(--mono)", fontSize: 12 }}>
+            {error}
+          </div>
         )}
         {success && (
-          <div style={{
-            marginTop: 14, padding: "8px 12px", borderRadius: 8,
-            background: "rgba(34,211,165,0.07)", border: "1px solid rgba(34,211,165,0.3)",
-            color: "#22d3a5", fontFamily: "var(--mono)", fontSize: 12,
-          }}>{success}</div>
+          <div style={{ marginTop: 14, padding: "8px 12px", borderRadius: 8, background: "rgba(34,211,165,0.07)", border: "1px solid rgba(34,211,165,0.3)", color: "#22d3a5", fontFamily: "var(--mono)", fontSize: 12 }}>
+            {success}
+          </div>
         )}
 
         {/* Submit */}
@@ -130,16 +155,12 @@ export default function CreateMarketModal({ onClose, onCreated }) {
             opacity: isPending ? 0.7 : 1, transition: "opacity 0.2s",
             userSelect: "none",
           }}
+          onMouseEnter={e => { if (!isPending) e.currentTarget.style.opacity = "0.85"; }}
+          onMouseLeave={e => { e.currentTarget.style.opacity = isPending ? "0.7" : "1"; }}
         >
           {isPending ? "Confirm in wallet..." : "Create Market"}
         </div>
 
-        <div style={{
-          marginTop: 12, textAlign: "center",
-          fontFamily: "var(--mono)", fontSize: 10, color: "var(--muted)",
-        }}>
-          Ethereum Sepolia · No creation fee · Settled by Gemini AI
-        </div>
       </div>
     </div>
   );
