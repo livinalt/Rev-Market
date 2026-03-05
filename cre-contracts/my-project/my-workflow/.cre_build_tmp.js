@@ -17210,7 +17210,9 @@ Your task:
 
 OUTPUT FORMAT (CRITICAL):
 - You MUST respond with a SINGLE JSON object with this exact structure:
-  {"result": "YES" | "NO", "confidence": <integer 0-10000>}
+  {"result": "YES" | "NO", "confidence": <integer 0-10000>, "sources": ["https://..."]}
+
+  Include 1 real URL that directly support your decision. Only include URL you are confident exist and are relevant.
 
 STRICT RULES:
 - Output MUST be valid JSON. No markdown, no backticks, no code fences, no prose, no comments, no explanation.
@@ -17236,7 +17238,9 @@ REMINDER:
 `;
 var USER_PROMPT = `Determine the outcome of this market based on factual information and return the result in this JSON format:
 
-{"result": "YES" | "NO", "confidence": <integer between 0 and 10000>}
+{"result": "YES" | "NO", "confidence": <integer between 0 and 10000>, "sources": ["https://..."}
+
+Include 1 real URL that directly support your decision. Only include URLs you are confident exist and are relevant.
 
 Market question:
 `;

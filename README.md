@@ -5,7 +5,7 @@
 > AI-powered prediction markets on Ethereum Sepolia. Ask any yes/no question, stake ETH on the outcome, and let Chainlink CRE + Google Gemini AI settle it automatically — no admins, no manual intervention, no trusted third party.
 
 🌐 **Live App:** [rev-markets.vercel.app](https://rev-markets.vercel.app)  
-📜 **Contract:** [0x24Af9cB5AE46eA0cB233809DAc88A0d849E0a2A1](https://sepolia.etherscan.io/address/0x24Af9cB5AE46eA0cB233809DAc88A0d849E0a2A1#code) · Ethereum Sepolia · Verified ✅
+📜 **Contract:** [0xCC24b932F524ECCf11E6Eb3B8e9860046328fb71](https://sepolia.etherscan.io/address/0xCC24b932F524ECCf11E6Eb3B8e9860046328fb71#code) · Ethereum Sepolia · Verified ✅
 
 ---
 
@@ -83,7 +83,7 @@ Receive proportional ETH payout from pool
 - `getMarket(uint256 marketId)` — read full market state
 - `getPrediction(uint256 marketId, address user)` — read user position
 
-**Deployed:** `0x24Af9cB5AE46eA0cB233809DAc88A0d849E0a2A1`  
+**Deployed:** `0xCC24b932F524ECCf11E6Eb3B8e9860046328fb71`  
 **Forwarder:** `0x15fc6ae953e024d975e77382eeec56a9101f9f88`  
 **Verified:** [View on Etherscan ↗](https://sepolia.etherscan.io/address/0x4a5545507513Be545583efef7aD515bc6Ab2385b#code)
 
@@ -260,18 +260,18 @@ vercel --prod
 
 ```bash
 # 1. Create a market
-cast send 0x24Af9cB5AE46eA0cB233809DAc88A0d849E0a2A1 \
+cast send 0xCC24b932F524ECCf11E6Eb3B8e9860046328fb71 \
   "createMarket(string)" "Will ETH be above 2000 USD by March 2026?" \
   --rpc-url $SEPOLIA_RPC --private-key $CRE_ETH_PRIVATE_KEY
 
 # 2. Place a prediction (YES = 0, NO = 1)
-cast send 0x24Af9cB5AE46eA0cB233809DAc88A0d849E0a2A1 \
+cast send 0xCC24b932F524ECCf11E6Eb3B8e9860046328fb71 \
   "predict(uint256,uint8)" 0 0 \
   --value 0.001ether \
   --rpc-url $SEPOLIA_RPC --private-key $CRE_ETH_PRIVATE_KEY
 
 # 3. Request AI settlement
-cast send 0x24Af9cB5AE46eA0cB233809DAc88A0d849E0a2A1 \
+cast send 0xCC24b932F524ECCf11E6Eb3B8e9860046328fb71 \
   "requestSettlement(uint256)" 0 \
   --rpc-url $SEPOLIA_RPC --private-key $CRE_ETH_PRIVATE_KEY
 
@@ -280,12 +280,12 @@ cre workflow simulate my-workflow --broadcast
 # → Select Log trigger → paste tx hash from step 3
 
 # 5. Check settlement result
-cast call 0x24Af9cB5AE46eA0cB233809DAc88A0d849E0a2A1 \
+cast call 0xCC24b932F524ECCf11E6Eb3B8e9860046328fb71 \
   "getMarket(uint256)((address,uint48,uint48,bool,uint16,uint8,uint256,uint256,string))" 0 \
   --rpc-url $SEPOLIA_RPC
 
 # 6. Claim winnings (if you won)
-cast send 0x24Af9cB5AE46eA0cB233809DAc88A0d849E0a2A1 \
+cast send 0xCC24b932F524ECCf11E6Eb3B8e9860046328fb71 \
   "claim(uint256)" 0 \
   --rpc-url $SEPOLIA_RPC --private-key $CRE_ETH_PRIVATE_KEY
 ```
@@ -339,7 +339,7 @@ Predictions are gated by [World ID](https://worldcoin.org/world-id) device verif
 ```
 CRE_ETH_PRIVATE_KEY=0x...
 SEPOLIA_RPC=https://ethereum-sepolia-rpc.publicnode.com
-MARKET_ADDRESS=0x24Af9cB5AE46eA0cB233809DAc88A0d849E0a2A1
+MARKET_ADDRESS=0xCC24b932F524ECCf11E6Eb3B8e9860046328fb71
 ETHERSCAN_API_KEY=...
 ```
 
