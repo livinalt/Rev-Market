@@ -2,7 +2,7 @@
 
 ![Website screenshot](screenshots/homepage.png)
 
-> AI-powered prediction markets on Ethereum Sepolia. Ask any yes/no question, stake ETH on the outcome, and let Chainlink CRE + Google Gemini AI settle it automatically — no admins, no manual intervention, no trusted third party.
+> AI-powered prediction markets on Ethereum Sepolia. Ask any yes/no question, stake ETH on the outcome, and let Chainlink CRE + Google Gemini AI settle it automatically without the needd for admins, manual intervention or trusted third party.
 
 🌐 **Live App:** [rev-markets.vercel.app](https://rev-markets.vercel.app)  
 📜 **Contract:** [0xCC24b932F524ECCf11E6Eb3B8e9860046328fb71](https://sepolia.etherscan.io/address/0xCC24b932F524ECCf11E6Eb3B8e9860046328fb71#code) · Ethereum Sepolia · Verified ✅
@@ -13,11 +13,11 @@
 
 Rev Markets is a trustless prediction market where:
 
-1. Anyone creates a yes/no question market (e.g. "Will ETH be above $3000 by June 2026?")
-2. Users stake 0.001 ETH on YES or NO — verified as unique humans via World ID
-3. Anyone triggers AI settlement by clicking ⚡ on any open market
+1. Anyone creates a yes/no question market (e.g. "Will ETH be above $3000 by June 2026?") with an optional IPFS-pinned description
+2. Users stake 0.001 ETH on YES or NO
+3. Anyone triggers AI settlement by clicking `Request Settlement` on any open market
 4. Chainlink CRE detects the on-chain event, queries Google Gemini AI for the outcome
-5. Gemini returns YES or NO with a confidence score, CRE writes it back on-chain
+5. Gemini returns YES or NO with a confidence score, CRE writes it back on-chain — the frontend detects settlement instantly via `watchContractEvent` (no polling)
 6. Winners claim their proportional share of the ETH pool
 
 ---
@@ -25,7 +25,7 @@ Rev Markets is a trustless prediction market where:
 ## Architecture
 
 ```
-User clicks ⚡ Request AI Settlement
+User clicks Request AI Settlement
            │
            ▼
 PredictionMarket.sol
@@ -50,6 +50,10 @@ onReport() → market.settled = true
              market.confidence = %
            │
            ▼
+Frontend detects MarketSettled event instantly (viem watchContractEvent)
+UI updates immediately — no polling delay
+           │
+           ▼
 Winners call claim(marketId)
 Receive proportional ETH payout from pool
 ```
@@ -60,14 +64,14 @@ Receive proportional ETH payout from pool
 
 | Layer | Technology |
 |---|---|
-| Smart Contract | Solidity 0.8.24 · Foundry · Ethereum Sepolia |
+| Smart Contract | Solidity 0.8.24, Foundry, Ethereum Sepolia |
 | Automation | Chainlink CRE — EVM Log Trigger + EVM Write |
 | AI Settlement | Google Gemini 2.0 Flash |
-| Frontend | React 19 · Vite · Thirdweb SDK |
+| Description Storage | IPFS via Pinata (CID stored on-chain) |
+| Frontend | React 19, Vite, Thirdweb SDK |
 | Wallet Auth | Thirdweb ConnectButton |
-| Sybil Resistance | World ID — Device Verification |
+| Event Detection | viem `watchContractEvent` with polling fallback |
 | Monitoring & Simulation | Tenderly — Virtual TestNet + Transaction Tracer |
-
 
 ---
 
@@ -75,17 +79,40 @@ Receive proportional ETH payout from pool
 
 **`PredictionMarket.sol`** — single contract handles everything:
 
-- `createMarket(string question)` — create a yes/no market
+- `createMarket(string question, string descriptionCID)` — create a yes/no market with optional IPFS description
 - `predict(uint256 marketId, uint8 side)` — stake 0.001 ETH on YES (0) or NO (1)
 - `requestSettlement(uint256 marketId)` — trigger CRE + Gemini settlement
 - `onReport(uint256 marketId, uint8 outcome, uint16 confidence)` — CRE writes result
 - `claim(uint256 marketId)` — winners withdraw proportional ETH payout
-- `getMarket(uint256 marketId)` — read full market state
+- `getMarket(uint256 marketId)` — read full market state including `descriptionCID`
 - `getPrediction(uint256 marketId, address user)` — read user position
 
+**Market struct fields:** `creator`, `createdAt`, `settledAt`, `settled`, `confidence`, `outcome`, `totalYesPool`, `totalNoPool`, `question`, `descriptionCID`
+
 **Deployed:** `0xCC24b932F524ECCf11E6Eb3B8e9860046328fb71`  
-**Forwarder:** `0x15fc6ae953e024d975e77382eeec56a9101f9f88`  
-**Verified:** [View on Etherscan ↗](https://sepolia.etherscan.io/address/0x4a5545507513Be545583efef7aD515bc6Ab2385b#code)
+**Forwarder:** `0x15fC6ae953E024d975e77382eEeC56A9101f9F88`  
+**Verified:** [View on Etherscan ↗](https://sepolia.etherscan.io/address/0xCC24b932F524ECCf11E6Eb3B8e9860046328fb71#code)
+
+---
+
+## IPFS Description Storage
+
+Market descriptions are stored on IPFS (via Pinata) with only the CID stored on-chain — the same approach used by Polymarket.
+
+**Write flow (market creation):**
+1. Frontend uploads JSON to Pinata: `{ question, description, createdAt }`
+2. Pinata returns a CID (e.g. `QmXyz...`)
+3. `createMarket(question, cid)` stores the CID on-chain
+4. Descriptions (optional) 
+
+**Read flow (market detail modal):**
+1. `getMarket()` returns the CID from chain
+2. Frontend fetches from dedicated Pinata gateway first, falls back to public gateways
+3. Results are cached in memory to avoid redundant fetches
+
+```javascript
+const IPFS_GATEWAYS = "https://coffee-blank-owl-368.mypinata.cloud/ipfs/";
+```
 
 ---
 
@@ -109,38 +136,68 @@ The CRE workflow lives in `cre-contracts/my-project/my-workflow/`:
 
 ---
 
+## Frontend — Event-Based Settlement Detection
+
+Settlement detection uses `viem.watchContractEvent`. The UI updates the moment the `MarketSettled` event is emitted on-chain.
+
+```
+requestSettlement() tx confirmed
+        │
+        ▼
+viem watchContractEvent("MarketSettled")
+        │
+        ▼  ← fires instantly on event
+onSettlementConfirmed(marketId)
+├── removes pending_settlement flag
+├── updates market in state via readMarketDirect()
+└── triggers full silent refresh
+```
+
+
+---
+
+## Notifications
+
+Per-wallet notification history — each wallet address has its own isolated store in localStorage. Switching wallets instantly clears the previous wallet's notifications and loads the new one's.
+
+Events tracked: market created, prediction placed, settlement requested (with live pending/stale/resolved states), market won, market lost, winnings claimed.
+
+---
+
 ## Repository Structure
 
 ```
 cre-prediction-market-2/
 ├── cre-contracts/
 │   ├── src/
-│   │   └── PredictionMarket.sol      # Main contract
-│   ├── foundry.toml                  # Foundry config
-│   ├── .env                          # Private key, RPC, contract address
+│   │   └── PredictionMarket.sol      
+│   ├── foundry.toml                  
+│   ├── .env                          
 │   └── my-project/
 │       └── my-workflow/
-│           ├── main.ts               # CRE workflow entry
-│           ├── logCallback.ts        # Event handler
-│           ├── gemini.ts             # Gemini AI integration
-│           ├── httpCallback.ts       # HTTP trigger handler
-│           ├── config.staging.json   # Staging config
+│           ├── main.ts               
+│           ├── logCallback.ts        
+│           ├── gemini.ts             
+│           ├── httpCallback.ts       
+│           ├── config.staging.json   
 │           ├── workflow.yaml         # CRE workflow definition
-│           └── secrets.yaml          # Secret mappings
+│           └── secrets.yaml          
 └── frontend/
     ├── src/
-    │   ├── App.jsx                   # Main app — sidebar + market grid
+    │   ├── App.jsx                   
     │   ├── components/
-    │   │   ├── Header.jsx            # Nav + wallet connect
-    │   │   ├── MarketCard.jsx        # Market card + World ID + actions
-    │   │   ├── MarketGrid.jsx        # 3-column grid
-    │   │   ├── CreateMarketModal.jsx # Create market form
-    │   │   ├── StatsBar.jsx          # Total/open/volume stats
-    │   │   ├── HowItWorks.jsx        # Landscape modal explaining flow
-    │   │   └── Toast.jsx             # Notifications
+    │   │   ├── Header.jsx            
+    │   │   ├── MarketCard.jsx        
+    │   │   ├── MarketDetailModal.jsx 
+    │   │   ├── MarketGrid.jsx        
+    │   │   ├── CreateMarketModal.jsx 
+    │   │   ├── NotificationPanel.jsx 
+    │   │   ├── StatsBar.jsx          
+    │   │   └── Toast.jsx             
     │   └── lib/
-    │       ├── contracts.js          # ABI + address
-    │       └── utils.js              # fmtEth, calcProb helpers
+    │       ├── contracts.js          
+    │       ├── useNotifications.js   
+    │       └── utils.js              
     ├── vite.config.js
     └── package.json
 ```
@@ -157,6 +214,7 @@ cre-prediction-market-2/
 - Ethereum Sepolia wallet with test ETH ([faucet](https://sepoliafaucet.com))
 - [Gemini API key](https://aistudio.google.com)
 - [Thirdweb client ID](https://thirdweb.com)
+- [Pinata account](https://app.pinata.cloud) 
 
 ---
 
@@ -174,25 +232,21 @@ cd cre-prediction-market-2
 ```bash
 cd cre-contracts
 
-# Set up environment
 cp .env.example .env
-# Fill in:
-# CRE_ETH_PRIVATE_KEY=0x...
-# SEPOLIA_RPC=https://...
-# ETHERSCAN_API_KEY=...
+# Fill in: CRE_ETH_PRIVATE_KEY, SEPOLIA_RPC, ETHERSCAN_API_KEY
 
-# Deploy
-forge script script/Deploy.s.sol \
+forge create src/PredictionMarket.sol:PredictionMarket \
   --rpc-url $SEPOLIA_RPC \
   --private-key $CRE_ETH_PRIVATE_KEY \
-  --broadcast -vv
+  --constructor-args 0x15fC6ae953E024d975e77382eEeC56A9101f9F88 \
+  --broadcast
 
 # Verify on Etherscan
 forge verify-contract <DEPLOYED_ADDRESS> \
   src/PredictionMarket.sol:PredictionMarket \
   --chain sepolia \
   --etherscan-api-key $ETHERSCAN_API_KEY \
-  --constructor-args $(cast abi-encode "constructor(address)" <FORWARDER_ADDRESS>)
+  --constructor-args $(cast abi-encode "constructor(address)" 0x15fC6ae953E024d975e77382eEeC56A9101f9F88)
 ```
 
 ---
@@ -202,24 +256,20 @@ forge verify-contract <DEPLOYED_ADDRESS> \
 ```bash
 cd cre-contracts/my-project
 
-# Set up secrets
 cp secrets.yaml.example secrets.yaml
 # Fill in GEMINI_API_KEY_VAR
 
-# Set up environment
 echo "CRE_ETH_PRIVATE_KEY=0x..." > .env
 echo "GEMINI_API_KEY_VAR=your_key" >> .env
 
 # Update contract address in config
-# Edit my-workflow/config.staging.json → marketAddress
+# Edit my-workflow/config.staging.json → marketAddress: "0xCC24b932F524ECCf11E6Eb3B8e9860046328fb71"
 
-# Install dependencies
 npm install
 
-# Simulate the workflow (test before deploying)
+# Simulate the workflow
 cre workflow simulate my-workflow --broadcast
-# Select: Log trigger
-# Paste a requestSettlement tx hash from Etherscan
+# Select: Log trigger → paste a requestSettlement tx hash from Etherscan
 ```
 
 ---
@@ -229,15 +279,14 @@ cre workflow simulate my-workflow --broadcast
 ```bash
 cd frontend
 
-# Install dependencies
 npm install --legacy-peer-deps
 
-# Set up environment
 cp .env.example .env
 # Fill in:
 # VITE_CLIENT_ID=your_thirdweb_client_id
+# VITE_MARKET_ADDRESS=0xCC24b932F524ECCf11E6Eb3B8e9860046328fb71
+# VITE_PINATA_JWT=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 
-# Start dev server
 npm run dev
 # → http://localhost:5173
 ```
@@ -247,21 +296,22 @@ npm run dev
 ### 5. Deploy frontend to Vercel
 
 ```bash
-# Make sure vite.config.js has base: '/'
-# Then push to GitHub — Vercel auto-deploys
+# Ensure vite.config.js has base: '/'
+# Set env vars in Vercel dashboard: VITE_CLIENT_ID, VITE_MARKET_ADDRESS, VITE_PINATA_JWT
 
-# Or deploy manually
 npm run build
 vercel --prod
 ```
 
+---
 
 ## End-to-End Demo Flow
 
 ```bash
-# 1. Create a market
+# 1. Create a market (descriptionCID is optional — pass "" to omit)
 cast send 0xCC24b932F524ECCf11E6Eb3B8e9860046328fb71 \
-  "createMarket(string)" "Will ETH be above 2000 USD by March 2026?" \
+  "createMarket(string,string)" \
+  "Will ETH be above 2000 USD by March 2026?" "" \
   --rpc-url $SEPOLIA_RPC --private-key $CRE_ETH_PRIVATE_KEY
 
 # 2. Place a prediction (YES = 0, NO = 1)
@@ -275,13 +325,13 @@ cast send 0xCC24b932F524ECCf11E6Eb3B8e9860046328fb71 \
   "requestSettlement(uint256)" 0 \
   --rpc-url $SEPOLIA_RPC --private-key $CRE_ETH_PRIVATE_KEY
 
-# 4. Simulate CRE workflow (Windows)
+# 4. Simulate CRE workflow
 cre workflow simulate my-workflow --broadcast
 # → Select Log trigger → paste tx hash from step 3
 
 # 5. Check settlement result
 cast call 0xCC24b932F524ECCf11E6Eb3B8e9860046328fb71 \
-  "getMarket(uint256)((address,uint48,uint48,bool,uint16,uint8,uint256,uint256,string))" 0 \
+  "getMarket(uint256)((address,uint48,uint48,bool,uint16,uint8,uint256,uint256,string,string))" 0 \
   --rpc-url $SEPOLIA_RPC
 
 # 6. Claim winnings (if you won)
@@ -310,7 +360,7 @@ Tenderly is used throughout development for three purposes:
 ![Rev Market Tenderly Virtual Testnet](screenshots/tenderly_screenshot.png)
 
 **1. Transaction Monitoring**
-Every transaction on `PredictionMarket.sol` is visible in real time with full execution traces, decoded logs, state diffs, and gas breakdowns — far more detail than Etherscan alone. This was used to debug `requestSettlement`, `onReport`, and `claim` calls during development.
+Every transaction on `PredictionMarket.sol` is visible in real time with full execution traces, decoded logs, state diffs, and gas breakdowns. Used to debug `requestSettlement`, `onReport`, and `claim` calls during development.
 
 **2. Transaction Simulation**
 Before sending real transactions, Tenderly's simulator previews exact state changes, return values, and potential reverts without spending gas. Used to verify settlement logic and payout calculations before broadcasting.
@@ -319,17 +369,6 @@ Before sending real transactions, Tenderly's simulator previews exact state chan
 A forked Ethereum Sepolia environment was used to test the full end-to-end flow — deploying contracts, placing predictions, triggering CRE settlement, and claiming winnings — in an isolated environment with custom ETH balances before going live on real Sepolia.
 
 🔗 **Tenderly Dashboard:** [View Project ↗](https://dashboard.tenderly.co/Jerly/cx/testnet/6b716f89-d035-49ad-a3c2-a6f63fc442b0)
-
----
-
-## World ID Integration
-
-Predictions are gated by [World ID](https://worldcoin.org/world-id) device verification — proving a user is a unique human before they can stake ETH. Verification happens once per session; after that all predictions on any market go through without re-verification.
-
-- **App ID:** `app_52bcb1ea37b432cf6a3e85f97160fc9e`
-- **Action:** `predict`
-- **Level:** Device verification
-- **Max verifications:** Unique per user
 
 ---
 
@@ -352,6 +391,8 @@ GEMINI_API_KEY_VAR=...
 ### `frontend/.env`
 ```
 VITE_CLIENT_ID=your_thirdweb_client_id
+VITE_MARKET_ADDRESS=0xCC24b932F524ECCf11E6Eb3B8e9860046328fb71
+VITE_PINATA_JWT=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 ```
 
 ---
@@ -360,9 +401,10 @@ VITE_CLIENT_ID=your_thirdweb_client_id
 
 - [Chainlink CRE](https://docs.chain.link/cre) — Compute, trigger, and write automation
 - [Google Gemini AI](https://ai.google.dev) — Natural language market resolution
-- [World ID](https://worldcoin.org/world-id) — Proof of personhood / Sybil resistance
+- [Pinata](https://pinata.cloud) — IPFS pinning for market descriptions
 - [Tenderly](https://tenderly.co) — Transaction monitoring, simulation, and Virtual TestNet
 - [Thirdweb](https://thirdweb.com) — Wallet connection + contract interaction
+- [viem](https://viem.sh) — Event-based settlement detection via `watchContractEvent`
 - [Foundry](https://getfoundry.sh) — Smart contract development + testing
 - [Vite + React](https://vitejs.dev) — Frontend framework
 
