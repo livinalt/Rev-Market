@@ -25,6 +25,7 @@ All files that use or integrate Chainlink CRE are linked below.
 | [`cre-contracts/my-project/my-workflow/secrets.yaml`](https://github.com/livinalt/Rev-Market/blob/master/cre-contracts/my-project/secrets.yaml) | Maps `GEMINI_API_KEY` secret for use inside the CRE workflow |
 | [`cre-contracts/src/PredictionMarket.sol`](https://github.com/livinalt/Rev-Market/blob/master/cre-contracts/src/PredictionMarket.sol) | `onReport()` — the on-chain function CRE calls to write settlement results; `requestSettlement()` — emits the event CRE listens for |
 | [`frontend/src/App.jsx`](https://github.com/livinalt/Rev-Market/blob/master/frontend/src/App.jsx) | `watchContractEvent("MarketSettled")` — listens for the event CRE emits after settlement for instant UI update |
+| [`cre-contracts/agent.ts`](https://github.com/livinalt/Rev-Market/blob/master/cre-contracts/agent.ts) | Autonomous agent — creates a market, places a prediction, triggers CRE settlement via `--non-interactive` CLI flags, and claims winnings end-to-end without human input |
 
 **Workflow summary:** EVM Log Trigger on `SettlementRequested(uint256, string)` → TypeScript workflow queries Google Gemini AI → EVM Write calls `onReport()` on Ethereum Sepolia.
 
@@ -440,26 +441,6 @@ AI-powered prediction markets on Ethereum Sepolia. Ask any yes/no question, stak
 
 ---
 
-## Chainlink CRE File References
-
-All files that use or integrate Chainlink CRE are linked below.
-
-| File | Chainlink Usage |
-|---|---|
-| [`cre-contracts/my-project/my-workflow/main.ts`](https://github.com/livinalt/Rev-Market/blob/master/cre-contracts/my-project/my-workflow/main.ts) | Defines the EVM Log Trigger — watches for `SettlementRequested` events on Ethereum Sepolia |
-| [`cre-contracts/my-project/my-workflow/logCallback.ts`](https://github.com/livinalt/Rev-Market/blob/master/cre-contracts/my-project/my-workflow/logCallback.ts) | Core CRE handler — reads the event, calls Gemini AI, writes result back on-chain via `onReport()` |
-| [`cre-contracts/my-project/my-workflow/gemini.ts`](https://github.com/livinalt/Rev-Market/blob/master/cre-contracts/my-project/my-workflow/gemini.ts) | Gemini AI integration called from within the CRE workflow |
-| [`cre-contracts/my-project/my-workflow/httpCallback.ts`](https://github.com/livinalt/Rev-Market/blob/master/cre-contracts/my-project/my-workflow/httpCallback.ts) | HTTP trigger handler for manual CRE workflow invocation |
-| [`cre-contracts/my-project/my-workflow/workflow.yaml`](https://github.com/livinalt/Rev-Market/blob/master/cre-contracts/my-project/my-workflow/workflow.yaml) | CRE workflow definition — trigger type, chain, gas limit, steps |
-| [`cre-contracts/my-project/my-workflow/config.staging.json`](https://github.com/livinalt/Rev-Market/blob/master/cre-contracts/my-project/my-workflow/config.staging.json) | Chain + contract address config for the CRE deployment |
-| [`cre-contracts/my-project/my-workflow/secrets.yaml`](https://github.com/livinalt/Rev-Market/blob/master/cre-contracts/my-project/secrets.yaml) | Maps `GEMINI_API_KEY` secret for use inside the CRE workflow |
-| [`cre-contracts/src/PredictionMarket.sol`](https://github.com/livinalt/Rev-Market/blob/master/cre-contracts/src/PredictionMarket.sol) | `onReport()` — the on-chain function CRE calls to write settlement results; `requestSettlement()` — emits the event CRE listens for |
-| [`frontend/src/App.jsx`](https://github.com/livinalt/Rev-Market/blob/master/frontend/src/App.jsx) | `watchContractEvent("MarketSettled")` — listens for the event CRE emits after settlement for instant UI update |
-
-**Workflow summary:** EVM Log Trigger on `SettlementRequested(uint256, string)` → TypeScript workflow queries Google Gemini AI → EVM Write calls `onReport()` on Ethereum Sepolia.
-
----
-
 ## What It Does
 
 Rev Markets is a trustless prediction market where:
@@ -627,6 +608,7 @@ Rev-Market/
 │           ├── config.staging.json   # Chain + contract config
 │           ├── workflow.yaml         # CRE workflow definition
 │           └── secrets.yaml          # Secret mappings
+│   ├── agent.ts                      # Autonomous agent — full lifecycle without human input
 └── frontend/
     ├── src/
     │   ├── App.jsx                   # watchContractEvent settlement detection
@@ -794,6 +776,44 @@ cast send 0xCC24b932F524ECCf11E6Eb3B8e9860046328fb71 \
 ```
 
 
+## Autonomous Agent
+
+Rev Markets supports fully autonomous operation. `agent.ts` runs the complete market lifecycle: create, predict, settle, and claim without any human interaction.
+
+The contract doesn't distinguish between a human wallet and an agent wallet. Any address can call `requestSettlement()`, which makes the system natively compatible with autonomous agents and bots.
+
+```bash
+# Install deps
+npm install viem dotenv ts-node typescript
+
+# Add to cre-contracts/.env
+WORKFLOW_PATH=./my-project/my-workflow
+
+# Run the agent
+npx ts-node agent.ts
+```
+
+The agent automatically:
+1. Creates a market with today's date in the question
+2. Stakes 0.001 ETH on YES
+3. Calls `requestSettlement()` and captures the tx hash
+4. Runs `cre workflow simulate --non-interactive --trigger-index 1 --evm-tx-hash <hash> --broadcast`
+5. Polls until `settled = true` on-chain
+6. Claims winnings if it won
+
+**Agent run (Market #25):**
+```
+[1/5 CREATE]  ✓ Market #25 created
+[2/5 PREDICT] ✓ YES predicted · 0.001 ETH staked  
+[3/5 REQUEST] ✓ SettlementRequested emitted
+[4/5 CRE]     ✓ Gemini AI says: NO · 90% confidence — written to chain
+[4/5 CRE]     ✓ Confirmed on-chain after 1 poll
+[5/5 CLAIM]   Agent predicted YES — outcome was NO. No winnings.
+```
+![Screenshot of Agent Simulation](<screenshots/Agent Simulation 1.png>) ![Screenshot of Agent Simulation](<screenshots/Agent Simulation 2.png>)
+![Screenshot of Agent Simulation](<screenshots/Agent Simulation 3.png>)
+
+
 
 ## Key Transactions (Sepolia)
 
@@ -803,6 +823,8 @@ cast send 0xCC24b932F524ECCf11E6Eb3B8e9860046328fb71 \
 | market created | `0xbc0f6871ef1555f9feadb1b65cf23888a3d2d290a46f3a984db4496c364c1479` |
 | prediction placed | `0xd89b67abdfc1e113338cc1b2094c709b1f3b8bdec68a6f730cc067f69912f13a` |
 | Settlement requested | `0xea617cbb8cee8ac9370eb358140f586aa94df512ab64c41019e1d133aeb21d05` |
+| Agent run (market #25) | `0xe32f28c3728913c9e8dc70a3bdb33dd20c63802b757633fe76938c0391edb7b2` |
+| CRE onReport (agent-triggered) | `0xcef610181a1bd8d834fcb40e0898491766884d65433e4d849feea27a2cd8dd36` |
 
 ---
 
@@ -828,6 +850,8 @@ CRE_ETH_PRIVATE_KEY=0x...
 SEPOLIA_RPC=https://ethereum-sepolia-rpc.publicnode.com
 MARKET_ADDRESS=0xCC24b932F524ECCf11E6Eb3B8e9860046328fb71
 ETHERSCAN_API_KEY=...
+PROJECT_DIR=./my-project
+WORKFLOW_NAME=./my-workflow
 ```
 
 ### `cre-contracts/my-project/.env`
