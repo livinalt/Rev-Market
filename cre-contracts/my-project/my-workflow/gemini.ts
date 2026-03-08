@@ -1,4 +1,3 @@
-// prediction-market/my-workflow/gemini.ts
 
 import {
   cre,

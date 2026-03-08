@@ -1,21 +1,18 @@
-// agent.ts
-// Autonomous agent that creates a market, places a prediction,
-// requests settlement, waits for CRE to settle, and claims winnings.
-// Run: npx ts-node agent.ts
-
-import { createPublicClient, createWalletClient, http, parseEther, defineChain } from "viem";
+import { createPublicClient, createWalletClient, http, parseEther } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { sepolia } from "viem/chains";
+import { execSync } from "child_process";
 import * as dotenv from "dotenv";
 
 dotenv.config();
 
 // ── Config ────────────────────────────────────────────────────────────────────
-const MARKET_ADDRESS = process.env.MARKET_ADDRESS as `0x${string}`;
+const MARKET_ADDRESS = process.env.MARKET_ADDRESS      as `0x${string}`;
 const PRIVATE_KEY    = process.env.CRE_ETH_PRIVATE_KEY as `0x${string}`;
-const RPC_URL        = process.env.SEPOLIA_RPC || "https://ethereum-sepolia-rpc.publicnode.com";
+const RPC_URL        = process.env.SEPOLIA_RPC  || "https://ethereum-sepolia-rpc.publicnode.com";
+const PROJECT_DIR    = process.env.PROJECT_DIR  || "./my-project"; 
+const WORKFLOW_NAME  = process.env.WORKFLOW_NAME || "./my-workflow"; 
 
-// Minimal ABI — only what the agent needs
 const ABI = [
   {
     name: "createMarket",
@@ -78,7 +75,7 @@ const ABI = [
     name: "getNextMarketId",
     type: "function",
     stateMutability: "view",
-    inputs: [],
+    inputs:  [],
     outputs: [{ type: "uint256" }],
   },
   {
@@ -100,25 +97,6 @@ const ABI = [
       },
     ],
   },
-  {
-    name: "MarketCreated",
-    type: "event",
-    inputs: [
-      { name: "marketId",       type: "uint256", indexed: true  },
-      { name: "question",       type: "string",  indexed: false },
-      { name: "descriptionCID", type: "string",  indexed: false },
-      { name: "creator",        type: "address", indexed: false },
-    ],
-  },
-  {
-    name: "MarketSettled",
-    type: "event",
-    inputs: [
-      { name: "marketId",   type: "uint256", indexed: true  },
-      { name: "outcome",    type: "uint8",   indexed: false },
-      { name: "confidence", type: "uint16",  indexed: false },
-    ],
-  },
 ] as const;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -130,66 +108,94 @@ function sleep(ms: number) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+// Runs the CRE simulation fully non-interactively using CLI flags.
+//
+// Flags used:
+//   --non-interactive          skip all prompts
+//   --trigger-index 1          select evm LogTrigger (index 1; http is index 0)
+//   --evm-tx-hash 0x...        the requestSettlement tx hash
+//   --evm-event-index 0        SettlementRequested is always the first event
+//   --broadcast                write onReport() result to chain live
+//
+function runCRESimulation(settleTxHash: string): void {
+  // Run from inside PROJECT_DIR so CRE can find cre-settings.yaml
+  const cmd = [
+    "cre workflow simulate", WORKFLOW_NAME,
+    "--non-interactive",
+    "--trigger-index 1",
+    `--evm-tx-hash ${settleTxHash}`,
+    "--evm-event-index 0",
+    "--broadcast",
+  ].join(" ");
+
+  log("4/5 CRE", `Running: ${cmd}`);
+
+  try {
+    const output = execSync(cmd, {
+      cwd:      PROJECT_DIR,
+      encoding: "utf8",
+      timeout:  3 * 60 * 1000, // 3 min — Gemini (~10s) + on-chain write (~15s)
+      stdio:    ["ignore", "pipe", "pipe"],
+    });
+    printSimOutput(output);
+  } catch (err: any) {
+    // CRE CLI sometimes exits non-zero even on success — print and continue
+    const combined = (err.stdout || "") + (err.stderr || "");
+    printSimOutput(combined);
+    if (!combined.trim()) {
+      throw new Error(`CRE simulation failed with no output: ${err.message}`);
+    }
+  }
+}
+
+function printSimOutput(output: string): void {
+  console.log("\n── CRE simulation output ──────────────────────────────────────");
+  console.log(output.trim());
+  console.log("───────────────────────────────────────────────────────────────");
+
+  const match = output.match(/✓ Settled: (0x[a-fA-F0-9]{64})/);
+  if (match) {
+    console.log(`\n  ✓ onReport tx : ${match[1]}`);
+    console.log(`  Etherscan    : https://sepolia.etherscan.io/tx/${match[1]}`);
+  }
+}
+
+// Polls getMarket() every 8s until settled=true
 async function waitForSettlement(
   publicClient: ReturnType<typeof createPublicClient>,
   marketId: bigint,
-  timeoutMs = 10 * 60 * 1000 // 10 minutes
+  timeoutMs = 3 * 60 * 1000
 ): Promise<{ outcome: number; confidence: number }> {
-  log("WAIT", `Watching for MarketSettled event on market #${marketId}…`);
+  log("4/5 CRE", `Confirming settlement on-chain for market #${marketId}…`);
 
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      unwatch();
-      reject(new Error("Timed out waiting for settlement after 10 minutes"));
-    }, timeoutMs);
+  const deadline = Date.now() + timeoutMs;
+  let attempt = 0;
 
-    const unwatch = publicClient.watchContractEvent({
-      address:   MARKET_ADDRESS,
-      abi:       ABI,
-      eventName: "MarketSettled",
-      onLogs: (logs) => {
-        for (const log of logs) {
-          if (log.args.marketId === marketId) {
-            clearTimeout(timer);
-            unwatch();
-            resolve({
-              outcome:    Number(log.args.outcome),
-              confidence: Number(log.args.confidence),
-            });
-          }
-        }
-      },
-      onError: async () => {
-        // Fallback to polling if event watching fails
-        clearTimeout(timer);
-        unwatch();
-        log("WAIT", "Event watching failed — falling back to polling every 10s");
-        const deadline = Date.now() + timeoutMs;
-        while (Date.now() < deadline) {
-          await sleep(10_000);
-          const market = await publicClient.readContract({
-            address:      MARKET_ADDRESS,
-            abi:          ABI,
-            functionName: "getMarket",
-            args:         [marketId],
-          }) as any;
-          if (market.settled) {
-            resolve({ outcome: Number(market.outcome), confidence: Number(market.confidence) });
-            return;
-          }
-          log("WAIT", "Not settled yet — polling again in 10s…");
-        }
-        reject(new Error("Timed out waiting for settlement"));
-      },
-    });
-  });
+  while (Date.now() < deadline) {
+    attempt++;
+    const market = await publicClient.readContract({
+      address:      MARKET_ADDRESS,
+      abi:          ABI,
+      functionName: "getMarket",
+      args:         [marketId],
+    }) as any;
+
+    if (market.settled) {
+      log("4/5 CRE", `✓ Confirmed on-chain after ${attempt} poll(s)`);
+      return { outcome: Number(market.outcome), confidence: Number(market.confidence) };
+    }
+
+    log("4/5 CRE", `Poll ${attempt} — not yet settled, retrying in 8s…`);
+    await sleep(8_000);
+  }
+
+  throw new Error("Timed out waiting for settlement to confirm on-chain");
 }
 
-// ── Main agent ────────────────────────────────────────────────────────────────
+// 
 async function main() {
-  if (!PRIVATE_KEY || !MARKET_ADDRESS) {
-    throw new Error("Missing PRIVATE_KEY or MARKET_ADDRESS in .env");
-  }
+  if (!PRIVATE_KEY)    throw new Error("Missing CRE_ETH_PRIVATE_KEY in .env");
+  if (!MARKET_ADDRESS) throw new Error("Missing MARKET_ADDRESS in .env");
 
   const account = privateKeyToAccount(PRIVATE_KEY);
 
@@ -204,18 +210,18 @@ async function main() {
     transport: http(RPC_URL),
   });
 
-  console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+  console.log("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
   console.log("  Rev Markets — Autonomous Agent");
   console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-  console.log(`  Wallet : ${account.address}`);
+  console.log(`  Wallet:   ${account.address}`);
   console.log(`  Contract: ${MARKET_ADDRESS}`);
+  console.log(`  Workflow: ${PROJECT_DIR}/${WORKFLOW_NAME}`);
   console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
 
-  // ── Step 1: Create market ──────────────────────────────────────────────────
-  log("1/5", "Creating market…");
-
-  const question = `Will ETH be above $2000 on ${new Date().toISOString().split("T")[0]}?`;
-  log("1/5", `Question: "${question}"`);
+  // 1. Create market
+  log("1/5 CREATE", "Creating market…");
+  const question = `Will ETH close above $2000 on ${new Date().toISOString().split("T")[0]}?`;
+  log("1/5 CREATE", `Question: "${question}"`);
 
   const nextId = await publicClient.readContract({
     address:      MARKET_ADDRESS,
@@ -229,15 +235,13 @@ async function main() {
     functionName: "createMarket",
     args:         [question, ""],
   });
-
-  log("1/5", `Tx sent: ${createHash}`);
+  log("1/5 CREATE", `Tx: ${createHash}`);
   await publicClient.waitForTransactionReceipt({ hash: createHash });
-
   const marketId = nextId;
-  log("1/5", `✓ Market #${marketId} created`);
+  log("1/5 CREATE", `✓ Market #${marketId} created`);
 
-  // ── Step 2: Place prediction ───────────────────────────────────────────────
-  log("2/5", `Placing YES prediction on market #${marketId}…`);
+  // 2. Place prediction
+  log("2/5 PREDICT", `Predicting YES on market #${marketId}…`);
 
   const predictHash = await walletClient.writeContract({
     address:      MARKET_ADDRESS,
@@ -246,34 +250,32 @@ async function main() {
     args:         [marketId, 0], // 0 = YES
     value:        parseEther("0.001"),
   });
-
-  log("2/5", `Tx sent: ${predictHash}`);
+  log("2/5 PREDICT", `Tx: ${predictHash}`);
   await publicClient.waitForTransactionReceipt({ hash: predictHash });
-  log("2/5", `✓ Predicted YES · staked 0.001 ETH`);
+  log("2/5 PREDICT", `✓ YES predicted · 0.001 ETH staked`);
 
-  // ── Step 3: Request settlement ─────────────────────────────────────────────
-  log("3/5", `Requesting AI settlement for market #${marketId}…`);
+  // 3. Request settlement 
+  log("3/5 REQUEST", `Requesting settlement for market #${marketId}…`);
 
-  const settleHash = await walletClient.writeContract({
+  const settleTx = await walletClient.writeContract({
     address:      MARKET_ADDRESS,
     abi:          ABI,
     functionName: "requestSettlement",
     args:         [marketId],
   });
+  log("3/5 REQUEST", `Tx: ${settleTx}`);
+  await publicClient.waitForTransactionReceipt({ hash: settleTx });
+  log("3/5 REQUEST", `✓ SettlementRequested emitted`);
+  log("3/5 REQUEST", `  Etherscan: https://sepolia.etherscan.io/tx/${settleTx}`);
 
-  log("3/5", `Tx sent: ${settleHash}`);
-  await publicClient.waitForTransactionReceipt({ hash: settleHash });
-  log("3/5", `✓ Settlement requested — CRE + Gemini AI processing…`);
-
-  // ── Step 4: Wait for CRE to settle ────────────────────────────────────────
-  log("4/5", "Waiting for Chainlink CRE to write result on-chain…");
-
+  // 4. CRE simulation 
+  runCRESimulation(settleTx);
   const { outcome, confidence } = await waitForSettlement(publicClient, marketId);
   const outcomeLabel = outcome === 0 ? "YES" : "NO";
-  log("4/5", `✓ Market settled — Outcome: ${outcomeLabel} · Confidence: ${confidence / 100}%`);
+  log("4/5 CRE", `✓ Settled: ${outcomeLabel} · ${confidence / 100}% confidence`);
 
-  // ── Step 5: Claim winnings (if agent won) ──────────────────────────────────
-  log("5/5", "Checking if agent won…");
+  // 5. Claim winnings
+  log("5/5 CLAIM", "Checking agent position…");
 
   const position = await publicClient.readContract({
     address:      MARKET_ADDRESS,
@@ -286,28 +288,28 @@ async function main() {
   const agentWon        = agentPrediction === outcome && !position.claimed;
 
   if (agentWon) {
-    log("5/5", `Agent predicted ${agentPrediction === 0 ? "YES" : "NO"} and WON — claiming…`);
-
+    log("5/5 CLAIM", `Agent predicted ${agentPrediction === 0 ? "YES" : "NO"} — WON 🏆 Claiming…`);
     const claimHash = await walletClient.writeContract({
       address:      MARKET_ADDRESS,
       abi:          ABI,
       functionName: "claim",
       args:         [marketId],
     });
-
-    log("5/5", `Tx sent: ${claimHash}`);
+    log("5/5 CLAIM", `Tx: ${claimHash}`);
     await publicClient.waitForTransactionReceipt({ hash: claimHash });
-    log("5/5", `✓ Winnings claimed successfully`);
+    log("5/5 CLAIM", `✓ Winnings claimed`);
+    log("5/5 CLAIM", `  Etherscan: https://sepolia.etherscan.io/tx/${claimHash}`);
   } else if (position.claimed) {
-    log("5/5", "Position already claimed.");
+    log("5/5 CLAIM", "Already claimed.");
   } else {
-    log("5/5", `Agent predicted ${agentPrediction === 0 ? "YES" : "NO"} but outcome was ${outcomeLabel} — no claim.`);
+    log("5/5 CLAIM", `Agent predicted ${agentPrediction === 0 ? "YES" : "NO"} — outcome was ${outcomeLabel}. No winnings.`);
   }
 
+  // Summary 
   console.log("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
   console.log("  Agent lifecycle complete");
-  console.log(`  Market #${marketId} · ${question}`);
-  console.log(`  Outcome: ${outcomeLabel} · Confidence: ${confidence / 100}%`);
+  console.log(`  Market   : #${marketId} — ${question}`);
+  console.log(`  Outcome  : ${outcomeLabel} · ${confidence / 100}% confidence`);
   console.log(`  Agent won: ${agentWon ? "YES 🏆" : "NO"}`);
   console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
 }
