@@ -8,5 +8,8 @@
   },
   "devDependencies": {
     "@types/node": "^25.3.5"
+  },
+"scripts": {
+    "agent": "ts-node moltbook-agent.ts"
   }
 }

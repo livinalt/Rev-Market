@@ -26,6 +26,7 @@ All files that use or integrate Chainlink CRE are linked below.
 | [`cre-contracts/src/PredictionMarket.sol`](https://github.com/livinalt/Rev-Market/blob/master/cre-contracts/src/PredictionMarket.sol) | `onReport()` — the on-chain function CRE calls to write settlement results; `requestSettlement()` — emits the event CRE listens for |
 | [`frontend/src/App.jsx`](https://github.com/livinalt/Rev-Market/blob/master/frontend/src/App.jsx) | `watchContractEvent("MarketSettled")` — listens for the event CRE emits after settlement for instant UI update |
 | [`cre-contracts/agent.ts`](https://github.com/livinalt/Rev-Market/blob/master/cre-contracts/agent.ts) | Autonomous agent — creates a market, places a prediction, triggers CRE settlement via `--non-interactive` CLI flags, and claims winnings end-to-end without human input |
+| [`cre-contracts/moltbook-agent.ts`](https://github.com/livinalt/Rev-Market/blob/master/cre-contracts/moltbook-agent.ts) | Always-on Moltbook agent — generates markets from trending topics, posts results, runs 24/7 |
 
 **Workflow summary:** EVM Log Trigger on `SettlementRequested(uint256, string)` → TypeScript workflow queries Google Gemini AI → EVM Write calls `onReport()` on Ethereum Sepolia.
 
@@ -199,6 +200,7 @@ Rev-Market/
 │           ├── workflow.yaml         # CRE workflow definition
 │           └── secrets.yaml          # Secret mappings
 │   ├── agent.ts                      # Autonomous agent — full lifecycle without human input
+│   ├── moltbook-agent.ts             # autonomous Moltbook agent
 └── frontend/
     ├── src/
     │   ├── App.jsx                   # watchContractEvent settlement detection

@@ -6,7 +6,7 @@ import * as dotenv from "dotenv";
 
 dotenv.config();
 
-// ── Config ────────────────────────────────────────────────────────────────────
+//  Config
 const MARKET_ADDRESS = process.env.MARKET_ADDRESS      as `0x${string}`;
 const PRIVATE_KEY    = process.env.CRE_ETH_PRIVATE_KEY as `0x${string}`;
 const RPC_URL        = process.env.SEPOLIA_RPC  || "https://ethereum-sepolia-rpc.publicnode.com";
@@ -108,17 +108,9 @@ function sleep(ms: number) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-// Runs the CRE simulation fully non-interactively using CLI flags.
-//
-// Flags used:
-//   --non-interactive          skip all prompts
-//   --trigger-index 1          select evm LogTrigger (index 1; http is index 0)
-//   --evm-tx-hash 0x...        the requestSettlement tx hash
-//   --evm-event-index 0        SettlementRequested is always the first event
-//   --broadcast                write onReport() result to chain live
-//
+
 function runCRESimulation(settleTxHash: string): void {
-  // Run from inside PROJECT_DIR so CRE can find cre-settings.yaml
+  
   const cmd = [
     "cre workflow simulate", WORKFLOW_NAME,
     "--non-interactive",
@@ -134,12 +126,12 @@ function runCRESimulation(settleTxHash: string): void {
     const output = execSync(cmd, {
       cwd:      PROJECT_DIR,
       encoding: "utf8",
-      timeout:  3 * 60 * 1000, // 3 min — Gemini (~10s) + on-chain write (~15s)
+      timeout:  3 * 60 * 1000, 
       stdio:    ["ignore", "pipe", "pipe"],
     });
     printSimOutput(output);
   } catch (err: any) {
-    // CRE CLI sometimes exits non-zero even on success — print and continue
+    
     const combined = (err.stdout || "") + (err.stderr || "");
     printSimOutput(combined);
     if (!combined.trim()) {
